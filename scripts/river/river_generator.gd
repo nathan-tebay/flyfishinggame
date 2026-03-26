@@ -4,14 +4,13 @@ extends RefCounted
 # Generates a deterministic RiverData from a seed + DifficultyConfig.
 # Same seed + same config always produces the same river.
 
-const RC := RiverConstants
 
 
 func generate(seed: int, config: DifficultyConfig) -> RiverData:
 	var data := RiverData.new()
 	data.seed  = seed
-	data.width  = RC.SECTION_W_TILES
-	data.height = RC.RIVER_H_TILES
+	data.width  = RiverConstants.SECTION_W_TILES
+	data.height = RiverConstants.RIVER_H_TILES
 
 	_init_arrays(data)
 	_generate_depth_profile(data)
@@ -48,7 +47,7 @@ func _init_arrays(data: RiverData) -> void:
 
 		data.tile_map[x] = []
 		data.tile_map[x].resize(h)
-		data.tile_map[x].fill(RC.TILE_AIR)
+		data.tile_map[x].fill(RiverConstants.TILE_AIR)
 
 		data.hold_scores[x] = []
 		data.hold_scores[x].resize(h)
@@ -77,9 +76,9 @@ func _generate_depth_profile(data: RiverData) -> void:
 # ---------------------------------------------------------------------------
 
 func _build_tile_map(data: RiverData) -> void:
-	var bank_h     := RC.BANK_H_TILES
-	var min_depth  := RC.MIN_DEPTH_TILES
-	var depth_span := RC.MAX_DEPTH_TILES - min_depth
+	var bank_h     := RiverConstants.BANK_H_TILES
+	var min_depth  := RiverConstants.MIN_DEPTH_TILES
+	var depth_span := RiverConstants.MAX_DEPTH_TILES - min_depth
 
 	for x in data.width:
 		var depth_val  := data.depth_profile[x]
@@ -88,18 +87,18 @@ func _build_tile_map(data: RiverData) -> void:
 
 		for y in data.height:
 			if y < bank_h:
-				data.tile_map[x][y] = RC.TILE_BANK
+				data.tile_map[x][y] = RiverConstants.TILE_BANK
 			elif y == bank_h:
-				data.tile_map[x][y] = RC.TILE_SURFACE
+				data.tile_map[x][y] = RiverConstants.TILE_SURFACE
 			elif y < bottom_y:
 				# Split water column: upper 50% = MID_DEPTH, lower 50% = DEEP
 				var frac := float(y - bank_h) / float(water_cols)
 				if frac < 0.5:
-					data.tile_map[x][y] = RC.TILE_MID_DEPTH
+					data.tile_map[x][y] = RiverConstants.TILE_MID_DEPTH
 				else:
-					data.tile_map[x][y] = RC.TILE_DEEP
+					data.tile_map[x][y] = RiverConstants.TILE_DEEP
 			elif y == bottom_y:
-				data.tile_map[x][y] = RC.TILE_RIVERBED
+				data.tile_map[x][y] = RiverConstants.TILE_RIVERBED
 			# y > bottom_y stays TILE_AIR
 
 
@@ -115,15 +114,15 @@ func _generate_current_map(data: RiverData) -> void:
 
 		for y in data.height:
 			match data.tile_map[x][y]:
-				RC.TILE_BANK, RC.TILE_AIR:
+				RiverConstants.TILE_BANK, RiverConstants.TILE_AIR:
 					data.current_map[x][y] = 0.0
-				RC.TILE_SURFACE:
+				RiverConstants.TILE_SURFACE:
 					data.current_map[x][y] = base_speed
-				RC.TILE_MID_DEPTH:
+				RiverConstants.TILE_MID_DEPTH:
 					data.current_map[x][y] = base_speed * 0.85
-				RC.TILE_DEEP:
+				RiverConstants.TILE_DEEP:
 					data.current_map[x][y] = base_speed * 0.60
-				RC.TILE_RIVERBED:
+				RiverConstants.TILE_RIVERBED:
 					data.current_map[x][y] = base_speed * 0.30
 				_:
 					data.current_map[x][y] = base_speed
@@ -138,11 +137,11 @@ func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 
 	# Target counts per structure type, scaled by density
 	var counts := {
-		RC.TILE_WEED_BED:      int(8  * density),
-		RC.TILE_ROCK:          int(15 * density),
-		RC.TILE_BOULDER:       int(4  * density),
-		RC.TILE_UNDERCUT_BANK: int(6  * density),
-		RC.TILE_GRAVEL_BAR:    int(5  * density),
+		RiverConstants.TILE_WEED_BED:      int(8  * density),
+		RiverConstants.TILE_ROCK:          int(15 * density),
+		RiverConstants.TILE_BOULDER:       int(4  * density),
+		RiverConstants.TILE_UNDERCUT_BANK: int(6  * density),
+		RiverConstants.TILE_GRAVEL_BAR:    int(5  * density),
 	}
 
 	for tile_type: int in counts:
@@ -173,8 +172,8 @@ func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 				"y":     y,
 				"w":     w,
 				"h":     h,
-				"cover": RC.STRUCTURE_COVER.get(tile_type, 0.5),
-				"hatch": RC.STRUCTURE_HATCH.get(tile_type, 0.5),
+				"cover": RiverConstants.STRUCTURE_COVER.get(tile_type, 0.5),
+				"hatch": RiverConstants.STRUCTURE_HATCH.get(tile_type, 0.5),
 			})
 			placed += 1
 
@@ -182,37 +181,37 @@ func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 func _valid_placement(data: RiverData, tile_type: int, x: int, y: int) -> bool:
 	var tile := data.tile_map[x][y]
 	match tile_type:
-		RC.TILE_WEED_BED:
-			return tile == RC.TILE_SURFACE or tile == RC.TILE_MID_DEPTH
-		RC.TILE_ROCK:
-			return tile in [RC.TILE_SURFACE, RC.TILE_MID_DEPTH, RC.TILE_DEEP]
-		RC.TILE_BOULDER:
-			return tile == RC.TILE_MID_DEPTH or tile == RC.TILE_DEEP
-		RC.TILE_UNDERCUT_BANK:
-			return y == RC.BANK_H_TILES
-		RC.TILE_GRAVEL_BAR:
-			return tile == RC.TILE_SURFACE or \
-				(tile == RC.TILE_MID_DEPTH and data.depth_profile[x] < 0.35)
+		RiverConstants.TILE_WEED_BED:
+			return tile == RiverConstants.TILE_SURFACE or tile == RiverConstants.TILE_MID_DEPTH
+		RiverConstants.TILE_ROCK:
+			return tile in [RiverConstants.TILE_SURFACE, RiverConstants.TILE_MID_DEPTH, RiverConstants.TILE_DEEP]
+		RiverConstants.TILE_BOULDER:
+			return tile == RiverConstants.TILE_MID_DEPTH or tile == RiverConstants.TILE_DEEP
+		RiverConstants.TILE_UNDERCUT_BANK:
+			return y == RiverConstants.BANK_H_TILES
+		RiverConstants.TILE_GRAVEL_BAR:
+			return tile == RiverConstants.TILE_SURFACE or \
+				(tile == RiverConstants.TILE_MID_DEPTH and data.depth_profile[x] < 0.35)
 	return false
 
 
 func _structure_w(rng: RandomNumberGenerator, tile_type: int) -> int:
 	match tile_type:
-		RC.TILE_WEED_BED:      return rng.randi_range(3, 8)
-		RC.TILE_ROCK:          return rng.randi_range(1, 2)
-		RC.TILE_BOULDER:       return rng.randi_range(2, 4)
-		RC.TILE_UNDERCUT_BANK: return rng.randi_range(4, 8)
-		RC.TILE_GRAVEL_BAR:    return rng.randi_range(5, 12)
+		RiverConstants.TILE_WEED_BED:      return rng.randi_range(3, 8)
+		RiverConstants.TILE_ROCK:          return rng.randi_range(1, 2)
+		RiverConstants.TILE_BOULDER:       return rng.randi_range(2, 4)
+		RiverConstants.TILE_UNDERCUT_BANK: return rng.randi_range(4, 8)
+		RiverConstants.TILE_GRAVEL_BAR:    return rng.randi_range(5, 12)
 	return 2
 
 
 func _structure_h(rng: RandomNumberGenerator, tile_type: int) -> int:
 	match tile_type:
-		RC.TILE_WEED_BED:      return rng.randi_range(2, 3)
-		RC.TILE_ROCK:          return rng.randi_range(1, 2)
-		RC.TILE_BOULDER:       return rng.randi_range(2, 3)
-		RC.TILE_UNDERCUT_BANK: return 2
-		RC.TILE_GRAVEL_BAR:    return rng.randi_range(2, 3)
+		RiverConstants.TILE_WEED_BED:      return rng.randi_range(2, 3)
+		RiverConstants.TILE_ROCK:          return rng.randi_range(1, 2)
+		RiverConstants.TILE_BOULDER:       return rng.randi_range(2, 3)
+		RiverConstants.TILE_UNDERCUT_BANK: return 2
+		RiverConstants.TILE_GRAVEL_BAR:    return rng.randi_range(2, 3)
 	return 1
 
 
@@ -236,7 +235,7 @@ func _apply_structure_tiles(data: RiverData) -> void:
 					continue
 				var existing := data.tile_map[tx][ty]
 				# Only place on water tiles — never overwrite bank or air
-				if existing != RC.TILE_BANK and existing != RC.TILE_AIR:
+				if existing != RiverConstants.TILE_BANK and existing != RiverConstants.TILE_AIR:
 					data.tile_map[tx][ty] = tile_type
 
 
@@ -247,7 +246,7 @@ func _apply_structure_tiles(data: RiverData) -> void:
 func _apply_eddy_currents(data: RiverData) -> void:
 	for structure: Dictionary in data.structures:
 		var tile_type: int = structure["type"]
-		if tile_type != RC.TILE_ROCK and tile_type != RC.TILE_BOULDER:
+		if tile_type != RiverConstants.TILE_ROCK and tile_type != RiverConstants.TILE_BOULDER:
 			continue
 
 		var sx: int = structure["x"]
@@ -270,7 +269,7 @@ func _apply_eddy_currents(data: RiverData) -> void:
 				if ey < 0 or ey >= data.height:
 					continue
 				var t := data.tile_map[ex][ey]
-				if t == RC.TILE_AIR or t == RC.TILE_BANK:
+				if t == RiverConstants.TILE_AIR or t == RiverConstants.TILE_BANK:
 					continue
 				data.current_map[ex][ey] = lerpf(
 					data.current_map[ex][ey], 0.12, fade * 0.75
@@ -285,7 +284,7 @@ func _calculate_hold_scores(data: RiverData) -> void:
 	for x in data.width:
 		for y in data.height:
 			var tile := data.tile_map[x][y]
-			if tile == RC.TILE_BANK or tile == RC.TILE_AIR:
+			if tile == RiverConstants.TILE_BANK or tile == RiverConstants.TILE_AIR:
 				continue
 
 			var cover    := _cover_at(data, x, y)

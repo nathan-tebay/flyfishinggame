@@ -4,7 +4,6 @@ extends TileMap
 # Renders RiverData onto the TileMap using programmatically generated
 # placeholder colour tiles. Replace with a proper TileSet asset in Phase 8.
 
-const RC := RiverConstants
 
 var _tileset_built := false
 
@@ -15,14 +14,14 @@ func build_tileset() -> void:
 		return
 
 	var ts := TileSet.new()
-	ts.tile_size = Vector2i(RC.TILE_SIZE, RC.TILE_SIZE)
+	ts.tile_size = Vector2i(RiverConstants.TILE_SIZE, RiverConstants.TILE_SIZE)
 
-	for tile_id: int in RC.TILE_COLORS:
+	for tile_id: int in RiverConstants.TILE_COLORS:
 		var source := TileSetAtlasSource.new()
-		var img    := Image.create(RC.TILE_SIZE, RC.TILE_SIZE, false, Image.FORMAT_RGBA8)
-		img.fill(RC.TILE_COLORS[tile_id])
+		var img    := Image.create(RiverConstants.TILE_SIZE, RiverConstants.TILE_SIZE, false, Image.FORMAT_RGBA8)
+		img.fill(RiverConstants.TILE_COLORS[tile_id])
 		source.texture              = ImageTexture.create_from_image(img)
-		source.texture_region_size  = Vector2i(RC.TILE_SIZE, RC.TILE_SIZE)
+		source.texture_region_size  = Vector2i(RiverConstants.TILE_SIZE, RiverConstants.TILE_SIZE)
 		source.create_tile(Vector2i.ZERO)
 		ts.add_source(source, tile_id)
 
@@ -31,9 +30,9 @@ func build_tileset() -> void:
 	# Ensure three layers exist: Base | Structures | Debug
 	while get_layers_count() < 3:
 		add_layer(-1)
-	set_layer_name(RC.LAYER_BASE,       "Base")
-	set_layer_name(RC.LAYER_STRUCTURES, "Structures")
-	set_layer_name(RC.LAYER_DEBUG,      "Debug")
+	set_layer_name(RiverConstants.LAYER_BASE,       "Base")
+	set_layer_name(RiverConstants.LAYER_STRUCTURES, "Structures")
+	set_layer_name(RiverConstants.LAYER_DEBUG,      "Debug")
 
 	_tileset_built = true
 
@@ -50,14 +49,14 @@ func show_hold_debug(data: RiverData, top_n: int = 30) -> void:
 	build_tileset()
 	for i in mini(top_n, data.top_holds.size()):
 		var hold: Dictionary = data.top_holds[i]
-		set_cell(RC.LAYER_DEBUG,
+		set_cell(RiverConstants.LAYER_DEBUG,
 			Vector2i(hold["x"], hold["y"]),
-			RC.TILE_SURFACE,
+			RiverConstants.TILE_SURFACE,
 			Vector2i.ZERO)
 
 
 func hide_hold_debug() -> void:
-	clear_layer(RC.LAYER_DEBUG)
+	clear_layer(RiverConstants.LAYER_DEBUG)
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +67,9 @@ func _paint_base(data: RiverData) -> void:
 	for x in data.width:
 		for y in data.height:
 			var tile_type: int = data.tile_map[x][y]
-			if tile_type == RC.TILE_AIR:
+			if tile_type == RiverConstants.TILE_AIR:
 				continue
-			set_cell(RC.LAYER_BASE, Vector2i(x, y), tile_type, Vector2i.ZERO)
+			set_cell(RiverConstants.LAYER_BASE, Vector2i(x, y), tile_type, Vector2i.ZERO)
 
 
 func _paint_structures(data: RiverData) -> void:
@@ -89,4 +88,4 @@ func _paint_structures(data: RiverData) -> void:
 				var ty := sy + dy
 				if tx >= 0 and tx < data.width and ty >= 0 and ty < data.height:
 					if data.tile_map[tx][ty] == tile_type:
-						set_cell(RC.LAYER_STRUCTURES, Vector2i(tx, ty), tile_type, Vector2i.ZERO)
+						set_cell(RiverConstants.LAYER_STRUCTURES, Vector2i(tx, ty), tile_type, Vector2i.ZERO)

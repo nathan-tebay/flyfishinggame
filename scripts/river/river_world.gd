@@ -1,6 +1,5 @@
 extends Node2D
 
-const RC := RiverConstants
 
 @onready var camera:     RiverCamera    = $Camera2D
 @onready var tilemap:    RiverRenderer  = $TileMap
@@ -64,7 +63,7 @@ func _generate_river() -> void:
 
 func _update_sky() -> void:
 	var idx := int(TimeOfDay.current_period)
-	sky_strip.color = RC.SKY_COLORS[idx]
+	sky_strip.color = RiverConstants.SKY_COLORS[idx]
 
 
 func _on_period_changed(_period: int) -> void:

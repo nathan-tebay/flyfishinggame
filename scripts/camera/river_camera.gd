@@ -5,7 +5,6 @@ extends Camera2D
 # Phase 3+: follows Angler (follow_target) with scout range ±3 screen widths.
 # Phase 2 free-pan mode retained when follow_target is null (for testing).
 
-const RC          := RiverConstants
 const PAN_SPEED   := 600.0  # pixels per second (free-pan mode only)
 const SCOUT_RANGE := 3      # screen widths the player can scout from angler
 
@@ -17,7 +16,7 @@ var _viewport_half_h: float
 
 
 func _ready() -> void:
-	_section_px      = float(RC.SECTION_W_TILES * RC.TILE_SIZE)
+	_section_px      = float(RiverConstants.SECTION_W_TILES * RiverConstants.TILE_SIZE)
 	var vp           := get_viewport_rect().size
 	_viewport_half_w = vp.x * 0.5
 	_viewport_half_h = vp.y * 0.5
