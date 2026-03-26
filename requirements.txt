@@ -1,0 +1,26 @@
+
+
+16 bit level of graphics -- thinking similar to super black bass on the super nintendo
+flowing river that has multiple depth levels and aquatic insects what are realistic for the madison river in montana. IE follows a hatch chart like at https://www.montanaangler.com/montana-fly-fishing-rivers/madison-river-hatch-chart-fishing
+          -- start with caddis during the mothersday caddis hatch as a PoC
+     -- has holding pockets for fish native to the madison https://fwp.mt.gov/binaries/content/assets/fwp/conservation/fisheries-management/statewide-fisheries-management-plan-2023-2026/2.17_madison-river-drainage.pdf
+     -- the fish should follow this feeding philosophy
+           Gierach, known for books like Trout Bum, often emphasizes fishing shallow, bank-side water at dawn and dusk, or "edges" where shallow water meets deep water.
+            Boundary Feeding Philosophy: Anglers often look for fish to move from deep, safe water to shallow, active feeding areas early and late in the day (the "boundary" between day and night).
+            Edge Fishing: Gierach's writing frequently focuses on targeting the edges of pools, under banks, or where the water moves from fast to slow, which are the boundaries where fish wait to ambush food.
+
+the fisherman should be able to target a spot and cast torwards it. they will need to have rythm to the cast that works like a fly rod as the lever. this will be mappable to keys or the right joystick on a gamepad
+      -- bad cast will have a higher chance of scaring the fish
+the fisherman should have basic selection of flies for the hatches including nymphs and dry flies
+the fisherman should be able to move around the river bank and shallow waters to position themselves for the cast
+
+fish should be warry of shadows from the angler and line. larger fish will be more likely to get spooked, how secure the fishes holding spot is will also affect this.
+
+
+
+initial questions:
+    -- what is a good game engine for this that can be portable to mobile and tablet, intially targeting linux and windows on PC
+    -- I'm not intending this to be 3d initially but with displays for the river with angler and a casting meter in the UI with a rod and fly line displayed to help with casting rythm across the bottom
+    -- intially supporting up to 1440p resolution
+
+

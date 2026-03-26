@@ -1,0 +1,105 @@
+Building a Fly Fishing Game — Planning Session 1
+
+I've been wanting to build a game for a while. Not a generic one — something that reflects an activity I actually care about. Fly fishing on the Madison River in Montana has a particular kind of depth to it: reading water, matching hatches, approaching fish without spooking them, timing a cast. It turns out those elements translate surprisingly well into game mechanics. This post covers the first planning session where I worked through the concept with Claude Code and ended up with a full game design document, architecture plan, and phased implementation roadmap.
+
+---
+
+The Concept
+
+The reference point I had in mind was Super Black Bass on the Super Nintendo — 16-bit pixel art, side-scrolling river view, a fishing mechanic that required some skill. I wanted to take that aesthetic and layer in realistic fly fishing principles: hatch-driven fish behavior, edge feeding philosophy drawn from writers like John Gierach, and a casting mechanic that actually resembles how a fly rod works.
+
+The setting is the Madison River in Montana, starting with the Mother's Day Caddis hatch as a proof of concept. The Madison is a world-class fishery with well-documented hatch charts, native brown and rainbow trout, and the kind of structure — boulders, weed beds, undercut banks, fast seams beside slow pools — that makes for interesting fishing decisions.
+
+---
+
+Choosing a Game Engine
+
+The first real decision was engine. I asked about Go as a language to learn, which surfaced two options: Godot 4 with GDScript, or Ebitengine as a pure Go 2D game engine. Ebitengine would have been the right call if learning Go was the priority. But GDScript — which is essentially Python in syntax — combined with Godot's visual editor, built-in tilemap system, and animation tools made more sense for a game with this much visual complexity. Godot 4 exports to Linux, Windows, Android, and iOS without licensing headaches. That was the direction.
+
+---
+
+The Display
+
+The game renders as a side-scrolling cross-section of the river. You can see the depth layers simultaneously — the surface where dry flies drift and fish rise, the mid-column where emergers and nymphs travel, and the deep bottom where fish hold between feeding bursts. The angler stands on the bank or wades in the river. The HUD runs along the bottom: a rod arc and fly line visualization on the left, a cast timing meter in the center, and a fly selector on the right.
+
+This cross-section view was a deliberate choice. It makes the depth system visible and readable. You can see a fish holding in a deep pocket behind a boulder, watch it move up to the feeding seam at dusk, and make decisions about approach and fly presentation based on what you observe.
+
+---
+
+The River
+
+The river is procedurally generated from a seed. The pipeline runs from a simplex noise depth profile through current mapping, structure placement, and hold evaluation. Structures — weed beds, rocks, large boulders, undercut banks, gravel bars — are placed according to the depth and current conditions, and each one affects two things: cover quality for fish, and hatch indicator weight for insects.
+
+A hold evaluation formula scores every tile after structure placement:
+
+  hold_score = cover_value + seam_proximity + depth_score + current_speed_score
+
+The highest-scoring locations become fish holding spots. No positions are hardcoded. The same seed always generates the same river, which matters for a potential future multiplayer mode where two anglers need to be on the same water.
+
+Sections are 24 screen widths long — enough to explore meaningfully. The river flows left to right and sections generate seamlessly as the player moves, with the previous section despawning behind them. Structure density is configurable across three difficulty tiers: Arcade has dense structure with many prime holds, Sim has sparse cover and few good lies.
+
+---
+
+Fish Behavior
+
+The feeding philosophy comes directly from Gierach's writing on edge fishing. Fish hold in slow, deep water and make feeding forays into adjacent fast water where the current funnels insects. The prime lies are boulder eddies, pool tail-outs, deep banks beside riffles, and undercut banks. Fish will travel further to take a fly in slow water than in fast water, where the fly has to drift directly into the feeding lane.
+
+Fish have a directional vision cone — they always face upstream, into the current. Approaching from directly downstream puts you in their full field of view at maximum spook distance. Approaching from upstream, behind the fish, puts you in the blind spot. Wading upstream is therefore the preferred approach, but it comes with a cost: wading creates vibration and water displacement that radiates omnidirectionally and doesn't respect the vision cone. The blind spot advantage is real but partially offset. Bank fishing creates shadow risk that depends on sun angle and time of day.
+
+The spook system is a formula:
+
+  spook_radius = base × size_multiplier × cover_reduction
+               × time_of_day_modifier × approach_angle_modifier
+               × difficulty_modifier
+
+Fish have a memory. Small fish forget intrusions after a cooldown. Large fish remember for the entire session and become uncatchable after three spooks — they drop to the deepest available hold and stop feeding until dawn. This resets at the `dawn` signal emitted by the time-of-day system. Two wrong-fly presentations count as a partial spook (0.5), so large fish can be burned out by sloppy fly selection without ever making a bad cast.
+
+---
+
+Casting
+
+The casting mechanic is rhythm-based. The player feeds line out using triggers, initiates a cast, and false casts to build line in the air. The rod arc in the HUD serves as the unified feedback system — it shows line length, indicates when the line has straightened (time to change direction), and displays loop quality. Tight loops mean good timing. Wide or collapsed loops mean poor timing and increase spook risk on presentation.
+
+When the player is happy with the distance, they press a button to shoot the line and complete the cast. The timing window speed scales continuously with line length — a long cast requires more beats at a slower rhythm, a short cast is fast and tight.
+
+During the drift, current creates drag on the fly. The player can mend by moving the mouse upstream or downstream, resetting drag accumulation and extending the natural drift. Mending costs rod position — you can't mend and be ready to strike at the same time.
+
+---
+
+Matching the Hatch
+
+When there's an active hatch, insects are visible as animated sprites on the water. Caddis adults skitter across the surface. Mayflies drift upright. Midges cluster in groups. The hatch moves through stages — Pre-Hatch, Emerger, Peak Hatch, Spinner Fall — and the fish feeding mode shifts with it.
+
+When there's no visible hatch, the player can sample the water with a net. They stand still (which also drops wading vibration to near zero), wait three to five seconds, and sample the surface, mid-column, or bottom to identify what's active subsurface. On Casual and Normal difficulties, the results show insect abundance as bars. On Sim, just the names — the player has to know their entomology.
+
+Fly matching uses a weighted closeness score comparing the presented fly to the active insect profile. An exact match gives the best take probability. A wrong life stage causes the fish to inspect and reject, counting as a partial intrusion. A wrong species on Sim difficulty makes the fish ignore or flee.
+
+---
+
+The Hookset
+
+For dry flies, the fish rises, the fly disappears, and there's a splash. For nymphs, a floating ball strike indicator on the line pauses or dips. In both cases, the player pulls back on the rod to set the hook.
+
+The timing consequences are asymmetric by design. Setting too early — before the fish has fully committed — results in the fish being gone and a full spook count added. Setting too late — after the fish has already spit the fly — results in the fish returning to feeding. This mirrors real fly fishing where lifting too early is a more damaging and common mistake than lifting too late.
+
+---
+
+Catch Log
+
+A successful hookset triggers a catch record. Each fish is procedurally varied at spawn — brown trout have randomized spot density, body color from golden to silver, and kype size on large males. Rainbow trout vary in lateral stripe intensity and spot density. The catch log stores a pixel art photo snapshot of the specific fish alongside species, size, fly used, hatch state, time of day, and the river section seed. The logbook is accessible from the pause menu and lays the foundation for sharing catches by seed in a future multiplayer context.
+
+---
+
+Difficulty
+
+Three tiers — Arcade, Standard, Sim — affect every system simultaneously through a single `DifficultyConfig` resource. In Arcade, the shadow cone is always visible, fish telegraph spook states with a strong color shift, structure density is high, and timing windows are forgiving. In Sim, the shadow cone is hidden, fish give no telegraph, structure is sparse, vision cone blind spots are narrower, net sample results show names only, and wrong-species fly presentations add to intrusion memory. The design intent is that Sim approximates the knowledge and patience required for real technical fly fishing.
+
+---
+
+What's Next
+
+The planning session produced three documents: a full Game Design Document (`GDD.md`), an architecture reference for future Claude Code sessions (`CLAUDE.md`), and a phased implementation plan (`TASKS.md`) with eight phases, each scoped to fit within a single agentic session. The phases run from project foundation and river generation through casting, fish AI, hatch systems, hookset, and finally full integration into a playable proof of concept.
+
+Phase 1 starts with Godot project scaffolding, the difficulty config resource, input mapping, and the time-of-day autoload. From there each phase builds one system at a time, always ending in a runnable and testable state before the next session begins.
+
+The Mother's Day Caddis hatch on the Madison River. Should be a good place to start.
