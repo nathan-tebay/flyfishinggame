@@ -5,13 +5,13 @@
 set -euo pipefail
 
 GODOT_VERSION="4.3"
-GODOT_SQLITE_VERSION="3.8.0"  # Update when upgrading the plugin
+GODOT_SQLITE_VERSION="4.7"    # Update when upgrading the plugin
 EXPORT_IMAGE="barichello/godot-ci:${GODOT_VERSION}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${PROJECT_DIR}/builds"
 PLUGIN_DIR="${PROJECT_DIR}/addons/godot-sqlite"
-PLUGIN_ZIP="godot-sqlite-v${GODOT_SQLITE_VERSION}.zip"
-PLUGIN_URL="https://github.com/2shady4u/godot-sqlite/releases/download/v${GODOT_SQLITE_VERSION}/${PLUGIN_ZIP}"
+# Release asset is always named bin.zip regardless of version
+PLUGIN_URL="https://github.com/2shady4u/godot-sqlite/releases/download/v${GODOT_SQLITE_VERSION}/bin.zip"
 
 # --- Colour output ---
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
@@ -33,7 +33,7 @@ _godot_bin() {
 # --- Commands ---
 
 cmd_setup() {
-    info "Setting up godot-sqlite plugin v${GODOT_SQLITE_VERSION}..."
+    info "Setting up godot-sqlite plugin v${GODOT_SQLITE_VERSION} (bin.zip)..."
 
     if [[ -f "${PLUGIN_DIR}/godot-sqlite.gdextension" ]]; then
         info "Plugin already installed at ${PLUGIN_DIR}. Run with --force to reinstall."
@@ -48,20 +48,27 @@ cmd_setup() {
     trap 'rm -rf "$tmp_dir"' EXIT
 
     info "Downloading ${PLUGIN_URL}..."
-    curl -fsSL -o "${tmp_dir}/${PLUGIN_ZIP}" "${PLUGIN_URL}" \
+    curl -fsSL -o "${tmp_dir}/bin.zip" "${PLUGIN_URL}" \
         || error "Failed to download plugin. Check GODOT_SQLITE_VERSION in run.sh."
 
     info "Extracting plugin..."
-    unzip -q "${tmp_dir}/${PLUGIN_ZIP}" -d "${tmp_dir}/extracted"
+    unzip -q "${tmp_dir}/bin.zip" -d "${tmp_dir}/extracted"
 
-    # The zip places files under addons/godot-sqlite/ — copy that into our project
-    local src="${tmp_dir}/extracted/addons/godot-sqlite"
+    # bin.zip extracts the addon contents directly (flat — no addons/godot-sqlite/ prefix).
+    # Detect layout: if addons/godot-sqlite/ exists inside, use that; otherwise use root.
+    local src
+    if [[ -d "${tmp_dir}/extracted/addons/godot-sqlite" ]]; then
+        src="${tmp_dir}/extracted/addons/godot-sqlite"
+    else
+        src="${tmp_dir}/extracted"
+    fi
+
     [[ -d "$src" ]] \
-        || error "Unexpected zip layout — expected addons/godot-sqlite/ inside archive."
+        || error "Unexpected zip layout — could not locate plugin files inside bin.zip."
 
     rm -rf "$PLUGIN_DIR"
-    mkdir -p "$(dirname "$PLUGIN_DIR")"
-    cp -r "$src" "$PLUGIN_DIR"
+    mkdir -p "$PLUGIN_DIR"
+    cp -r "${src}/." "$PLUGIN_DIR/"
 
     info "Plugin installed at ${PLUGIN_DIR}"
     info "Enable it in Godot: Project → Project Settings → Plugins → godot-sqlite → Enable"
