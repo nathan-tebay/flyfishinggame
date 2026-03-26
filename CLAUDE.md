@@ -10,6 +10,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Language:** GDScript
 **Targets:** Linux, Windows (initial), Android/iOS (future)
 
+## Session Conventions
+
+Every session produces two documents before implementation work begins or resumes:
+- **Transcript**: `flyfishinggame-transcript session N.txt` — decision log with rationale, suitable for future reference
+- **Blog draft**: `flyfishinggame-planning session N.txt` — narrative post for external audience
+
+Both committed and tagged `planning-session-N` (or `implementation-session-N` for build sessions) at session end.
+
 ## Implementation
 
 See `TASKS.md` for the phased agentic implementation plan. Each phase is self-contained and ends in a runnable, testable state. Always complete the current phase's testable condition before starting the next.

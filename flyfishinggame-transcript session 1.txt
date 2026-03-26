@@ -1,0 +1,266 @@
+Fly Fishing Game — Planning Session 1 Transcript
+Date: 2026-03-26
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+Initial concept exploration, engine selection, core mechanic design, architecture planning, implementation roadmap.
+
+---
+
+DECISIONS LOG
+
+[1] GAME CONCEPT
+Decision: 16-bit pixel art fly fishing game set on the Madison River, Montana.
+Reference: Super Black Bass (SNES) as visual style reference.
+Rationale: Combines a realistic activity the user cares about with a genre that suits 2D pixel art and skill-based mechanics. Starting scope is deliberately narrow — one river, one hatch.
+
+[2] ENGINE — Godot 4 with GDScript
+Options considered:
+  - Godot 4 + GDScript
+  - Godot 4 + C#
+  - Ebitengine (pure Go)
+  - Go via GDExtension (godot-go)
+
+User initially asked about Go. Assessment: godot-go is experimental, not mature for a game of this complexity. Ebitengine would work for Go learning but requires building more infrastructure manually.
+
+Decision: Godot 4 + GDScript.
+Rationale: GDScript is Python-like (easiest to learn from scratch), Godot has first-class 2D support, built-in tilemap/animation/physics tools, exports to Linux/Windows/Android/iOS without licensing cost. Best tradeoff for getting to a playable prototype quickly.
+
+[3] DISPLAY LAYOUT
+Decision: Side-scrolling cross-section view showing depth layers simultaneously.
+  - Sky strip (top)
+  - Bank / angler
+  - Water surface — dry flies, insects, rises
+  - Mid-depth — emergers, nymphs
+  - Deep bottom — holding fish, pockets
+  - HUD bar (bottom) — rod arc, cast meter, fly selector
+
+Rationale: Cross-section makes depth readable and visible to the player. Supports the core tension of fish moving from deep holds to feeding edges. Directly visualizes the Gierach edge feeding philosophy.
+
+[4] CAMERA
+Decision: Free pan up to 3 screen widths from angler. Camera follows angler during movement, pans freely during scouting.
+Rationale: Allows player to scout for fish before committing to an approach. 3 screen widths gives meaningful scouting range without losing connection to angler position.
+
+[5] ANGLER MOVEMENT — BANK VS WADING
+Decision: Two distinct movement modes with separate spook profiles.
+  - Bank fishing: shadow cone is primary risk (directional, sun-angle dependent)
+  - Wading: vibration/displacement is primary risk (omnidirectional, scales with movement speed)
+  - Standing still in water reduces vibration to near zero
+  - Strategic choice between modes is a core positioning decision
+
+[6] FISH BEHAVIOR — GIERACH EDGE FEEDING
+Decision: Fish hold in slow/deep water, feed in adjacent fast water seams.
+  - Prime lies: boulder eddies, pool tail-outs, deep bank beside riffle, undercut banks
+  - Fish travel distance to take fly inversely proportional to current speed
+  - Slow water fish chase fly further; fast water fish require fly in exact feeding lane
+  - Dawn/dusk triggers move from deep hold to feeding edge
+
+Rationale: Directly based on Gierach's writing on edge/boundary fishing. Creates meaningful water-reading decisions.
+
+[7] FISH VISION CONE
+Decision: Fish have a directional vision cone (always face upstream).
+  - Blind spot directly behind (upstream approach)
+  - ~120° cone each side
+  - Approach angle modifier feeds into SpookCalculator
+  - Wading vibration partially counteracts blind spot advantage (vibration is omnidirectional)
+  - Net effect still favors upstream approach but not as dramatically as static bank approach
+  - Cone width and blind spot size configurable per difficulty
+
+Rationale: Mirrors real fish behavior. Creates meaningful approach angle decisions. Upstream approach is rewarded but wading cost prevents it being a free pass.
+
+[8] SPOOK STATE MACHINE
+Decision: FEEDING → ALERT → SPOOKED → RELOCATING → HOLDING → FEEDING
+  - Alert: marginal intrusion, stops feeding, holds position, won't take fly
+  - Spooked: hard intrusion, flees to new hold
+  - Relocation logic: spooked toward angler = downstream/deeper; spooked by shadow = opposite bank
+  - Cooldown timers: small fish 10s, large fish 30s
+
+[9] INTRUSION MEMORY
+Decision: Fish remember intrusions within a session.
+  - Small fish: resets after cooldown, never uncatchable
+  - Medium fish: full session memory, uncatchable at 5 spooks
+  - Large fish: full session memory, uncatchable (lockdown) at 3 spooks
+  - Lockdown: drops to deepest hold, stops feeding, resets at dawn signal
+  - Visual tell as threshold approaches: twitchy idle animation, tighter radius
+  - Wrong-stage fly rejection counts as +0.5 spook (partial intrusion)
+  - Wrong-species on Sim difficulty counts as +1.0 spook
+
+Rationale: Makes large fish precious and unrepeatable within a session. Rewards patience and proper approach over repeated attempts.
+
+[10] SPOOK RADIUS FORMULA
+Decision: Always computed through SpookCalculator, never hardcoded elsewhere.
+  spook_radius = base × size_multiplier × cover_reduction
+               × time_of_day_modifier × approach_angle_modifier
+               × difficulty_modifier
+
+[11] FISH VISIBILITY
+Decision: Depth + lighting determines fish visibility.
+  - Shallow + bright: clear ripple + silhouette
+  - Shallow + low light: ripple only
+  - Deep + bright: strong silhouette
+  - Deep + low light: faint silhouette
+  - Night: invisible
+  - Opacity = depth_factor × inverse(light_level)
+  - Creates scouting tension: midday easy to spot but fish inactive; dawn/dusk fish feeding but hard to find
+
+[12] PROCEDURAL RIVER GENERATION
+Decision: Fully procedural, seed-based.
+  Pipeline: Seed → Depth Profile (simplex noise) → Current Map → Structure Placement → Hold Evaluation → Fish Spawn → Hatch Layer
+
+  Structures: weed beds, rocks, small boulders, large boulders, undercut banks, gravel bars
+
+  Hold evaluation formula:
+    hold_score = cover_value + seam_proximity + depth_score + current_speed_score
+
+  Top-scoring tiles become fish holding positions — no hardcoded positions.
+
+  Section seed = hash(base_seed + section_index) — deterministic, shareable for future multiplayer.
+  Section length: 24 screen widths.
+  Sections generate seamlessly, previous despawns behind player.
+
+  Structure density configurable (Arcade = dense, Standard = medium, Sim = sparse).
+
+Decision note on structures: All structures increase hatch indicator weight, not just weed beds. Weed beds are the primary insect habitat (highest hatch weight, best cover). Boulders create eddies that are prime feeding lies.
+
+[13] CASTING MECHANIC
+Decision: Rhythm-based timing windows. Player aims first, then casts.
+
+  Flow:
+    1. Scout and select target
+    2. Feed line out (right trigger / mapped key)
+    3. False cast rhythm — timing windows speed scales with line length
+    4. Rod arc is unified HUD (direction cue + loop quality + line length) — no separate meter
+    5. Line straightens = cue to change direction
+    6. Tight loops = good timing; wide/collapsed = poor timing
+    7. Press complete cast when happy with distance — shoots line
+
+  Mouse movement during drift = mend (upstream or downstream).
+  Mending resets drag accumulation, extends natural drift.
+  Mending costs rod position — cannot mend and be ready to strike simultaneously.
+
+[14] DIFFICULTY TIERS
+Decision: Three tiers — Arcade, Standard, Sim.
+  All difficulty-variable values live in DifficultyConfig resource, never hardcoded elsewhere.
+  Affects: spook radius, fish multipliers, cover reduction, shadow cone visibility, fish telegraph, wading vibration radius, vision cone blind spot, net sample UI, hookset window, structure density, fish count per section.
+
+[15] HATCH SYSTEM
+Decision: Full hatch state machine per species.
+  States: NO_HATCH → PRE_HATCH → EMERGER → PEAK_HATCH → SPINNER_FALL → NO_HATCH
+
+  Insects visible as animated sprites on water during active hatch. Species have distinct movement patterns (caddis skitter, mayflies drift upright, midges cluster).
+
+  PoC hatch: Mother's Day Caddis (Elk Hair Caddis dry, Caddis Pupa wet).
+
+[16] NET SAMPLING
+Decision: Player can sample water subsurface when no visible hatch.
+  - 3–5 second stand-still requirement (also reduces vibration to near zero — double incentive)
+  - Movement interrupts sampling
+  - Surface / mid-depth / bottom sample types
+  - Results weighted by nearby structure (weed bed = more nymphs)
+  - Casual/Normal: shows abundance bars. Sim: names only.
+
+[17] FLY MATCHING — SLIDING SCALE
+Decision: Weighted closeness score between fly profile and active insect profile.
+  Exact match → Close match → Generic attractor → Wrong stage → Wrong species
+
+  Factors: species (high weight), life stage (high), size (medium), color/profile (low).
+
+  Wrong-stage rejection = +0.5 intrusion memory.
+  Wrong-species on Sim = +1.0 intrusion memory.
+  Two wrong-stage presentations = one full spook count on large fish.
+
+[18] HOOKSET
+Decision: Asymmetric miss consequences.
+  - Dry fly: rise + splash sound + fly disappears → strike window
+  - Nymph: floating ball strike indicator on line pauses/dips → strike window
+  - Too early: fish gone, +1 intrusion memory (hard spook)
+  - Perfect: hook set, catch confirmed
+  - Too late: fish spits fly, returns to feeding (second chance)
+
+  Rationale: Asymmetry mirrors real fly fishing — lifting too early is a more common and damaging mistake than lifting too late.
+
+  Strike window duration configurable per difficulty.
+
+[19] CATCH LOG & FISH PHOTOS
+Decision: Freeform session with catch log.
+  - Each fish procedurally varied at spawn (seeded from instance ID)
+  - Brown trout: spot density, body color golden→silver, kype size
+  - Rainbow trout: lateral stripe intensity, spot density, body depth
+  - Mountain whitefish: scale pattern, body proportions
+  - Catch records: species, size, fly, hatch state, time of day, section seed + location
+  - Pixel art photo snapshot of the specific fish
+  - Logbook accessible from pause menu
+  - Seed stored per catch — foundation for future multiplayer sharing
+
+[20] TIME OF DAY
+Decision: Configurable time scale.
+  - Default: 1 real minute = 1 in-game hour (~24 min full day)
+  - Configurable to real-time (1:1)
+  - Player sets session start time (e.g. start at dawn)
+  - Periods: Dawn, Morning, Midday, Afternoon, Dusk, Night
+  - TimeOfDay emits dawn signal (used for large fish lockdown reset)
+
+---
+
+ARCHITECTURE DECISIONS
+
+Core system list agreed upon:
+  RiverWorld, RiverGenerator, Angler, CastingController, DriftController,
+  FishAI, FishVisionCone, SpookCalculator, HatchManager, FlyMatcher,
+  NetSampler, HooksetController, FishRenderer, CatchLog, TimeOfDay,
+  DifficultyConfig, GameManager
+
+Key architectural constraints documented in CLAUDE.md:
+  - All spook checks route through SpookCalculator
+  - All difficulty values live in DifficultyConfig resource
+  - Fly rejection adds intrusion memory via FlyMatcher, not in fly/cast code
+  - Large fish lockdown resets on TimeOfDay.dawn signal, not a timer
+  - Rod arc is the only line length indicator — no separate HUD meter
+  - Fish visual attributes seeded from instance ID, handled by FishRenderer
+
+---
+
+IMPLEMENTATION PLAN
+
+8 phases documented in TASKS.md, each designed as a self-contained agentic session:
+  Phase 1: Project Foundation (Godot scaffold, DifficultyConfig, TimeOfDay, input map)
+  Phase 2: River Generation & Rendering
+  Phase 3: Angler Movement & Spook Geometry
+  Phase 4: Casting Mechanic
+  Phase 5: Fish AI & Vision
+  Phase 6: Hatch System, Fly Matching & Net Sampling
+  Phase 7: Hookset, Catch & Logbook
+  Phase 8: Integration & First Playable Session
+
+---
+
+SESSION CONVENTIONS (established this session)
+- Each session produces: transcript, blog draft, updated GDD/CLAUDE.md as needed
+- Transcript: decision log with rationale, suitable for future reference
+- Blog post: narrative for external audience
+- Both filed as: "flyfishinggame-transcript session N.txt" and "flyfishinggame-planning session N.txt"
+
+---
+
+OPEN ITEMS / FUTURE SCOPE (deferred from this session)
+- Multi-stage false casting for distance control
+- Full Madison River hatch chart across all seasons
+- Multiplayer (seed sharing foundation already in place)
+- Line mending drag in future scope (designed, not PoC priority)
+- Fish fight mechanic post-PoC hookset
+- Weather effects (wind on cast, overcast reducing shadow)
+- Sound design
+- Mobile touch controls
+- Generic/attractor fly pattern profiles
+- Upstream approach vibration/blind spot balance tuning (designed, to be tuned in playtest)
+
+---
+
+END OF TRANSCRIPT
