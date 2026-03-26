@@ -233,3 +233,12 @@ func _process_drift() -> void:
 		state = State.IDLE
 		drift_ended.emit()
 		print("CastingController: line retrieved")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+# Returns the world-space fly landing position (valid once RESULT state has run)
+func get_fly_pos() -> Vector2:
+	return Vector2(_target_x, _target_y)

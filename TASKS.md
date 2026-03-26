@@ -179,7 +179,7 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** Complete catch loop — strike signal, hookset timing, catch confirmation, procedural fish photo, logbook entry.
 
 **Deliverables:**
-- [ ] `HooksetController` (`scripts/catching/hookset_controller.gd`)
+- [x] `HooksetController` (`scripts/catching/hookset_controller.gd`)
   - Dry fly: rise + splash sound + fly disappears → strike window opens
   - Nymph: floating ball strike indicator spawned on line during drift, pauses/dips on take → strike window opens
   - Hookset input detected within window
@@ -187,12 +187,12 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
   - Perfect: emits `catch_confirmed`
   - Too late: emits `miss_late`, fish returns to FEEDING
   - Strike window duration configurable per difficulty
-- [ ] Floating ball strike indicator sprite — follows line drift, animates on take
-- [ ] `CatchLog` (`scripts/catching/catch_log.gd`)
+- [x] Floating ball strike indicator sprite — follows line drift, animates on take
+- [x] `CatchLog` (`scripts/catching/catch_log.gd`)
   - On `catch_confirmed`: captures species, size, fly, hatch state, time of day, section seed, position
   - Triggers `FishRenderer` snapshot for fish photo
   - Stores entries in session array
-- [ ] Logbook UI scene — accessible from pause menu
+- [x] Logbook UI scene — accessible from pause menu
   - Photo gallery of caught fish
   - Per-entry: species, size, fly, time, location
   - Sortable by species and size

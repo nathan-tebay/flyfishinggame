@@ -9,11 +9,14 @@ extends Node2D
 @onready var drift:        DriftController   = $DriftController
 @onready var rod_arc_hud:  RodArcHUD         = $HUD/RodArcHUD
 @onready var fly_selector: FlySelector       = $HUD/FlySelector
-@onready var net_sampler:  NetSampler        = $NetSampler
-@onready var sample_panel: SamplePanel       = $HUD/SamplePanel
-@onready var insect_layer: CanvasLayer       = $InsectLayer
+@onready var net_sampler:       NetSampler         = $NetSampler
+@onready var sample_panel:      SamplePanel        = $HUD/SamplePanel
+@onready var insect_layer:      CanvasLayer        = $InsectLayer
+@onready var hookset_controller: HooksetController = $HooksetController
+@onready var logbook_panel:     LogbookPanel       = $HUD/LogbookPanel
 
 var river_data: RiverData
+var catch_log:  CatchLog = null
 var _fish_list: Array = []
 var _show_debug := false
 
@@ -46,6 +49,19 @@ func _ready() -> void:
 	net_sampler.river_data = river_data
 	angler.standing_still.connect(net_sampler.on_standing_still)
 	net_sampler.sample_complete.connect(_on_sample_complete)
+
+	# Catch log + logbook
+	catch_log = CatchLog.new()
+	logbook_panel.catch_log = catch_log
+
+	# Hookset controller
+	hookset_controller.casting      = casting
+	hookset_controller.fly_selector = fly_selector
+	casting.drift_started.connect(hookset_controller.on_drift_started)
+	casting.drift_ended.connect(hookset_controller.on_drift_ended)
+	hookset_controller.catch_confirmed.connect(_on_catch_confirmed)
+	hookset_controller.hard_spook.connect(_on_hard_spook)
+	hookset_controller.miss_late.connect(_on_miss_late)
 
 	# Hatch system
 	HatchManager.hatch_state_changed.connect(_on_hatch_state_changed)
@@ -145,6 +161,7 @@ func _spawn_fish() -> void:
 		fish.angler       = angler
 		fish.river_data   = river_data
 
+		fish.take_fly.connect(hookset_controller.on_fish_take.bind(fish))
 		add_child(fish)
 		placed.append(wp)
 		_fish_list.append(fish)
@@ -242,6 +259,31 @@ func _on_sample_complete(results: Array) -> void:
 # ---------------------------------------------------------------------------
 # Casting events
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Hookset / catch events
+# ---------------------------------------------------------------------------
+
+func _on_catch_confirmed(fish: FishAI) -> void:
+	catch_log.record_catch(fish, fly_selector.fly_name(), fly_selector.fly_stage())
+	logbook_panel.queue_redraw()
+	_fish_list.erase(fish)
+	fish.queue_free()
+	# Reset casting state without re-triggering hookset signals
+	hookset_controller.reset()
+	drift.on_drift_ended()
+	casting.state = CastingController.State.IDLE
+	print("RiverWorld: catch confirmed! Logbook: %d entries. Press L to view." \
+		% catch_log.catches.size())
+
+
+func _on_hard_spook(fish: FishAI) -> void:
+	fish.receive_hard_spook()
+
+
+func _on_miss_late(fish: FishAI) -> void:
+	fish.receive_miss_late()
+
 
 func _on_cast_result(quality: int, target_x: float, target_y: float) -> void:
 	var names := ["TIGHT", "SLOPPY", "BAD"]

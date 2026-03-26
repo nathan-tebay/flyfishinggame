@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scripts/river/river_world.gd" id="1_rworld"]
 [ext_resource type="Script" path="res://scripts/camera/river_camera.gd" id="2_rcam"]
@@ -10,6 +10,8 @@
 [ext_resource type="Script" path="res://scripts/ui/fly_selector.gd" id="8_flysel"]
 [ext_resource type="Script" path="res://scripts/angler/net_sampler.gd" id="9_netsampler"]
 [ext_resource type="Script" path="res://scripts/ui/sample_panel.gd" id="10_samplepanel"]
+[ext_resource type="Script" path="res://scripts/catching/hookset_controller.gd" id="11_hookset"]
+[ext_resource type="Script" path="res://scripts/ui/logbook_panel.gd" id="12_logbook"]
 
 [node name="RiverWorld" type="Node2D"]
 script = ExtResource("1_rworld")
@@ -30,6 +32,9 @@ script = ExtResource("6_drift")
 
 [node name="NetSampler" type="Node" parent="."]
 script = ExtResource("9_netsampler")
+
+[node name="HooksetController" type="Node" parent="."]
+script = ExtResource("11_hookset")
 
 [node name="SkyLayer" type="CanvasLayer" parent="."]
 layer = -1
@@ -53,3 +58,6 @@ script = ExtResource("8_flysel")
 
 [node name="SamplePanel" type="Node2D" parent="HUD"]
 script = ExtResource("10_samplepanel")
+
+[node name="LogbookPanel" type="Node2D" parent="HUD"]
+script = ExtResource("12_logbook")

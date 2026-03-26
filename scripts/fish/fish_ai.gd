@@ -290,6 +290,28 @@ func _on_period_changed(_period: int) -> void:
 # Fly presentation — called by RiverWorld when a cast_result fires
 # ---------------------------------------------------------------------------
 
+func receive_hard_spook() -> void:
+	# Called by HooksetController on too-early hookset; bypasses proximity check.
+	var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+	print("FishAI [%s %s]: HARD SPOOK from early hookset" % [
+		SPECIES_NAMES[species] as String, sz_name,
+	])
+	intrusion_memory += 1.0
+	_check_lockdown()
+	_compute_relocation()
+	_set_state(State.RELOCATING)
+
+
+func receive_miss_late() -> void:
+	# Called by HooksetController when strike window expires; fish spits fly.
+	var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+	print("FishAI [%s %s]: missed hookset — still feeding" % [
+		SPECIES_NAMES[species] as String, sz_name,
+	])
+	if state == State.FEEDING or state == State.ALERT:
+		_set_state(State.FEEDING)
+
+
 func on_fly_presented(fly_name: String, fly_stage: String,
 					  cast_quality: int, target_pos: Vector2) -> void:
 	var dist := position.distance_to(target_pos)
