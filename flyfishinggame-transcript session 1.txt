@@ -249,6 +249,45 @@ SESSION CONVENTIONS (established this session)
 
 ---
 
+IMPLEMENTATION DECISIONS (Phase 1 — added during build session)
+
+[21] PERSISTENCE — SQLite via godot-sqlite
+Decision: Use SQLite (via godot-sqlite GDExtension by 2shady4u) for all configuration and game saves. No other system writes directly to disk — all persistence routes through DatabaseManager autoload.
+
+Schema (v1):
+  settings          — key/value store for user preferences
+  difficulty_presets — one row per tier (ARCADE/STANDARD/SIM), all DifficultyConfig fields. Seeded from hardcoded defaults on first run, user-editable later.
+  sessions          — seed, start_hour, difficulty_tier, time_scale, timestamps
+  catches           — full catch record + fish_variant_seed for photo regeneration
+
+Rationale: Structured DB makes future features (custom difficulty, session history, multiplayer sharing) straightforward. Schema migration system built in from day one.
+
+Plugin: addons/godot-sqlite/ — must be downloaded via ./run.sh setup and enabled in Godot Project Settings → Plugins.
+
+[22] BUILD TOOLING — run.sh with Podman
+Decision: All dev and build operations through run.sh. Native Godot (run/editor) for local development, Podman containers (barichello/godot-ci:4.3) for reproducible headless exports.
+
+Commands: setup, run, editor, export [linux|windows|all], shell, clean.
+
+Rationale: Game needs GPU/display for run and editor — containers not suitable there. Exports are headless and benefit from a pinned environment. Splitting this way gives clean separation.
+
+Key version variables at top of run.sh: GODOT_VERSION (4.3), GODOT_SQLITE_VERSION (3.8.0). Update these when upgrading.
+
+[23] AUTOLOAD ORDER
+Decision: Autoloads load in this order (required — later ones depend on earlier ones):
+  1. DatabaseManager — must be first, all others read from DB
+  2. GameManager — loads DifficultyConfig from DB
+  3. TimeOfDay — reads time scale from DB via DatabaseManager
+  4. InputSetup — no dependencies, last
+
+[24] INPUT MAP — programmatic via InputSetup autoload
+Decision: All input actions registered in code (InputSetup.gd), not in project.godot. This keeps input actions readable and remappable at runtime without touching project settings.
+
+Actions defined: move_left/right/up/down, feed_line, strip_line, complete_cast, cast_back, cast_forward, hookset, net_sample, pause_game.
+Note: complete_cast and hookset share the same key (Space / JOY_BUTTON_A) — context determines which fires.
+
+---
+
 OPEN ITEMS / FUTURE SCOPE (deferred from this session)
 - Multi-stage false casting for distance control
 - Full Madison River hatch chart across all seasons

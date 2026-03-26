@@ -43,20 +43,22 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** A seeded, procedurally generated river section visible on screen with depth layers, structures, and hold scores calculated.
 
 **Deliverables:**
-- [ ] `RiverGenerator` (`scripts/river/river_generator.gd`) — full pipeline:
-  - Simplex noise depth profile (width, min/max depth, bank slope params)
-  - Current map derived from depth + structures
-  - Structure placement (weed beds, rocks, large boulders, undercut banks, gravel bars) respecting density config from `DifficultyConfig`
-  - Hold evaluation: `hold_score = cover_value + seam_proximity + depth_score + current_speed_score`
-  - Returns structured data: depth map, current map, structure list, hold score map
-- [ ] `RiverWorld.tscn` — main river scene with:
-  - 4-layer tilemap (surface, mid-depth, deep, bottom)
-  - Placeholder tiles per layer (colored rectangles sufficient)
-  - Current visualization (scroll speed on surface layer proportional to current)
-  - Sky strip at top (solid color per TimeOfDay period)
-- [ ] Seed input exposed — same seed always produces same river
-- [ ] Section length: 24 screen widths
-- [ ] Camera free pan up to 3 screen widths, clamped to section bounds
+- [x] `RiverConstants` (`scripts/river/river_constants.gd`) — tile types, sizes, colors, sky colors, structure properties
+- [x] `RiverData` (`scripts/river/river_data.gd`) — data structure returned by generator
+- [x] `RiverGenerator` (`scripts/river/river_generator.gd`) — full pipeline:
+  - Simplex noise depth profile via FastNoiseLite
+  - Base tile map from depth profile (BANK/SURFACE/MID_DEPTH/DEEP/RIVERBED)
+  - Current map (shallow=fast, deep=slow)
+  - Structure placement (weed beds, rocks, boulders, undercut banks, gravel bars) with density from DifficultyConfig
+  - Eddy currents downstream of rocks/boulders
+  - Hold evaluation: `cover + depth_score + slow_score + seam_score`
+  - Top hold candidates for Phase 5 fish spawn
+- [x] `RiverRenderer` (`scripts/river/river_renderer.gd`) — TileMap script with programmatic placeholder colour tiles, 3 layers (Base/Structures/Debug), hold score debug overlay toggle (`,` key)
+- [x] `RiverCamera` (`scripts/camera/river_camera.gd`) — horizontal pan with arrow keys, section-clamped limits, `set_anchor()` stub for Phase 3
+- [x] `RiverWorld.tscn` — Camera2D + TileMap + CanvasLayer sky strip, RiverWorld.gd controller
+- [x] Seed input exposed — same seed always produces same river
+- [x] Section length: 24 screen widths (1440 tiles)
+- [x] Camera pans full section width (Phase 3 will constrain to ±3 screens from angler)
 
 **Testable when:** Running the scene shows a river with visually distinct depth layers and structures. Changing the seed changes the layout. Camera pans with mouse/input.
 

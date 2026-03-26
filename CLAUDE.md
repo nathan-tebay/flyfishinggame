@@ -52,8 +52,12 @@ Key versions (update in `run.sh` when upgrading):
 
 | System | Responsibility |
 |---|---|
-| `RiverWorld` | Scene root — depth layers, current, tilemap, seamless section streaming |
-| `RiverGenerator` | Procedural generation pipeline: depth profile → current map → structure placement → hold evaluation → fish spawn. Seeded deterministically via `hash(base_seed + section_index)` |
+| `RiverWorld` | Scene root (`scenes/RiverWorld.tscn`, `scripts/river/river_world.gd`) — generates river, renders tilemap, updates sky strip, owns camera |
+| `RiverConstants` | `scripts/river/river_constants.gd` — all tile IDs, sizes, colors. Access as `RiverConstants.TILE_SIZE` etc. |
+| `RiverData` | `scripts/river/river_data.gd` — plain data struct: depth_profile, current_map, tile_map, hold_scores, structures, top_holds |
+| `RiverGenerator` | `scripts/river/river_generator.gd` — full pipeline: depth profile (FastNoiseLite) → tile map → current map → structure placement → eddy currents → hold scoring → top holds. Seeded deterministically. |
+| `RiverRenderer` | `scripts/river/river_renderer.gd` — extends TileMap, builds programmatic placeholder tileset, renders RiverData to 3 layers (Base/Structures/Debug) |
+| `RiverCamera` | `scripts/camera/river_camera.gd` — horizontal-only Camera2D, section-clamped. Phase 3 will call `set_anchor(world_x)` to constrain scout range |
 | `Angler` | Player movement (bank/wading), shadow cone projection, vibration radius, input handling |
 | `CastingController` | Line feed/strip state, false cast rhythm (speed scales with line length), rod arc HUD (unified: direction cue + loop quality + line length indicator), mouse mend detection (upstream/downstream), complete-cast trigger, cast quality → spook chance output |
 | `DriftController` | Tracks drag accumulation on fly during drift, applies take probability modifier, receives mend events from `CastingController` to reset drag |
