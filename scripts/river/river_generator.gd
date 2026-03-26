@@ -81,7 +81,7 @@ func _build_tile_map(data: RiverData) -> void:
 	var depth_span := RiverConstants.MAX_DEPTH_TILES - min_depth
 
 	for x in data.width:
-		var depth_val  := data.depth_profile[x]
+		var depth_val: float  = data.depth_profile[x]
 		var water_cols := min_depth + int(depth_val * float(depth_span))
 		var bottom_y   := bank_h + water_cols - 1  # y of riverbed tile
 
@@ -108,7 +108,7 @@ func _build_tile_map(data: RiverData) -> void:
 
 func _generate_current_map(data: RiverData) -> void:
 	for x in data.width:
-		var depth_val  := data.depth_profile[x]
+		var depth_val: float = data.depth_profile[x]
 		# Shallow riffles run fast (0.85-1.0), deep pools slow (0.25-0.55)
 		var base_speed := lerpf(0.95, 0.25, depth_val)
 
@@ -149,9 +149,9 @@ func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 		# Different salt per structure type ensures independent placement
 		rng.seed = hash(data.seed + tile_type * 7919)
 
-		var target   := counts[tile_type]
-		var placed   := 0
-		var attempts := target * 6
+		var target: int   = counts[tile_type]
+		var placed        := 0
+		var attempts: int = target * 6
 
 		for _i in attempts:
 			if placed >= target:
@@ -179,7 +179,7 @@ func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 
 
 func _valid_placement(data: RiverData, tile_type: int, x: int, y: int) -> bool:
-	var tile := data.tile_map[x][y]
+	var tile: int = data.tile_map[x][y]
 	match tile_type:
 		RiverConstants.TILE_WEED_BED:
 			return tile == RiverConstants.TILE_SURFACE or tile == RiverConstants.TILE_MID_DEPTH
@@ -191,7 +191,7 @@ func _valid_placement(data: RiverData, tile_type: int, x: int, y: int) -> bool:
 			return y == RiverConstants.BANK_H_TILES
 		RiverConstants.TILE_GRAVEL_BAR:
 			return tile == RiverConstants.TILE_SURFACE or \
-				(tile == RiverConstants.TILE_MID_DEPTH and data.depth_profile[x] < 0.35)
+				(tile == RiverConstants.TILE_MID_DEPTH and (data.depth_profile[x] as float) < 0.35)
 	return false
 
 
@@ -233,7 +233,7 @@ func _apply_structure_tiles(data: RiverData) -> void:
 				var ty := sy + dy
 				if tx < 0 or tx >= data.width or ty < 0 or ty >= data.height:
 					continue
-				var existing := data.tile_map[tx][ty]
+				var existing: int = data.tile_map[tx][ty]
 				# Only place on water tiles — never overwrite bank or air
 				if existing != RiverConstants.TILE_BANK and existing != RiverConstants.TILE_AIR:
 					data.tile_map[tx][ty] = tile_type
@@ -268,11 +268,11 @@ func _apply_eddy_currents(data: RiverData) -> void:
 				var ey := sy + dy
 				if ey < 0 or ey >= data.height:
 					continue
-				var t := data.tile_map[ex][ey]
+				var t: int = data.tile_map[ex][ey]
 				if t == RiverConstants.TILE_AIR or t == RiverConstants.TILE_BANK:
 					continue
 				data.current_map[ex][ey] = lerpf(
-					data.current_map[ex][ey], 0.12, fade * 0.75
+					data.current_map[ex][ey] as float, 0.12, fade * 0.75
 				)
 
 
@@ -283,14 +283,16 @@ func _apply_eddy_currents(data: RiverData) -> void:
 func _calculate_hold_scores(data: RiverData) -> void:
 	for x in data.width:
 		for y in data.height:
-			var tile := data.tile_map[x][y]
+			var tile: int = data.tile_map[x][y]
 			if tile == RiverConstants.TILE_BANK or tile == RiverConstants.TILE_AIR:
 				continue
 
-			var cover    := _cover_at(data, x, y)
-			var depth_sc := data.depth_profile[x] * 0.8
-			var slow_sc  := 1.0 - data.current_map[x][y]
-			var seam_sc  := _seam_at(data, x, y)
+			var cover             := _cover_at(data, x, y)
+			var depth_sc: float    = data.depth_profile[x]
+			depth_sc              *= 0.8
+			var slow_sc: float     = data.current_map[x][y]
+			slow_sc                = 1.0 - slow_sc
+			var seam_sc           := _seam_at(data, x, y)
 
 			data.hold_scores[x][y] = cover + depth_sc + slow_sc + seam_sc
 
@@ -314,7 +316,7 @@ func _seam_at(data: RiverData, x: int, y: int) -> float:
 	# Reward tiles adjacent to a significant current speed change (seam)
 	if x <= 0 or x >= data.width - 1:
 		return 0.0
-	var diff := absf(data.current_map[x + 1][y] - data.current_map[x - 1][y])
+	var diff := absf((data.current_map[x + 1][y] as float) - (data.current_map[x - 1][y] as float))
 	return minf(diff * 2.0, 1.0)
 
 
@@ -328,7 +330,7 @@ func _find_top_holds(data: RiverData, fish_count: int) -> void:
 
 	for x in data.width:
 		for y in data.height:
-			var score := data.hold_scores[x][y]
+			var score: float = data.hold_scores[x][y]
 			if score >= min_score:
 				candidates.append({"x": x, "y": y, "score": score})
 
