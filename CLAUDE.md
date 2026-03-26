@@ -55,12 +55,27 @@ godot --headless --export-release "Linux/X11" ./builds/game.x86_64
 | `NetSampler` | Stand-still timer, depth layer sampling, insect abundance results by proximity to structures |
 | `TimeOfDay` | Dawn/Morning/Midday/Afternoon/Dusk/Night cycle. Drives lighting, hatch windows, spook modifiers, shadow direction, fish visibility. Time scale configurable (1 min/hr default → real-time). Emits `dawn` signal for large fish lockdown reset |
 | `CatchLog` | Records catch data (species, size, fly, hatch state, time, seed+location). Generates pixel art fish photo snapshot. Logbook UI accessible from pause menu |
-| `DifficultyConfig` | Resource passed to SpookCalculator, FishAI, FlyMatcher, RiverGenerator — all difficulty-variable values live here, never hardcoded elsewhere |
+| `DifficultyConfig` | Resource passed to SpookCalculator, FishAI, FlyMatcher, RiverGenerator — all difficulty-variable values live here, never hardcoded elsewhere. Values loaded from DB on startup via DatabaseManager |
+| `DatabaseManager` | Autoload. Opens/creates `user://flyfishing.db` on startup, runs schema migrations, seeds default difficulty presets and settings. All persistence routes through here — no other system writes directly to disk |
+
+### Database Schema
+
+Managed by `DatabaseManager`. DB lives at `user://flyfishing.db`.
+
+| Table | Purpose |
+|---|---|
+| `settings` | Key/value store — time scale, session start hour, active difficulty tier, input remaps |
+| `difficulty_presets` | One row per tier (ARCADE/STANDARD/SIM), all `DifficultyConfig` fields. Seeded from hardcoded defaults, user-editable later |
+| `sessions` | seed, start_hour, difficulty_tier, time_scale, started_at, ended_at |
+| `catches` | species, size_cm, fly_name, fly_stage, hatch_state, time_of_day, section_index, position_x, fish_variant_seed, session_id FK |
+
+**Plugin:** godot-sqlite by 2shady4u — must be installed in `addons/godot-sqlite/` and enabled in Project Settings → Plugins.
 
 ### Key Design Constraints
 
 - **All spook radius checks route through `SpookCalculator`** — never compute proximity directly in AI or movement code
-- **All difficulty-variable values live in `DifficultyConfig` resource** — never hardcode Casual/Normal/Sim values in other systems
+- **All difficulty-variable values live in `DifficultyConfig` resource** — never hardcode Arcade/Standard/Sim values in other systems
+- **All persistence routes through `DatabaseManager`** — no other system writes directly to disk
 - **Fish size class is a property on the fish** — small/medium/large determines intrusion memory limits, vision cone width, cooldown timers
 - **Wading and bank fishing have separate spook profiles** — do not merge into a generic proximity check
 - **Fly matching uses `FlyMatcher` closeness score** — wrong-stage rejection adds +0.5 intrusion memory; never add intrusion directly in fly/cast code

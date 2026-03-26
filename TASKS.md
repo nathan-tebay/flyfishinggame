@@ -11,17 +11,29 @@ Phased agentic implementation plan for the fly fishing game PoC. Each phase is a
 ---
 
 ## Phase 1 — Project Foundation
-**Goal:** Runnable Godot project with input, config, and time-of-day scaffolding in place. Every subsequent phase builds on this.
+**Goal:** Runnable Godot project with input, config, SQLite persistence, and time-of-day scaffolding in place. Every subsequent phase builds on this.
+
+**Plugin requirement:** godot-sqlite by 2shady4u must be installed before running.
+Place the addon in `addons/godot-sqlite/`. Enable in Project → Project Settings → Plugins.
+Releases: https://github.com/2shady4u/godot-sqlite/releases
 
 **Deliverables:**
-- [ ] Godot 4 project initialized (`project.godot`, folder structure)
-- [ ] Folder structure: `scenes/`, `scripts/`, `assets/placeholder/`, `resources/`
-- [ ] `DifficultyConfig` resource (`resources/difficulty_config.gd`) — all three tiers (Arcade/Standard/Sim) with every difficulty-variable value from GDD difficulty table
-- [ ] Input map configured (`project.godot`) — feed line, strip line, complete cast, false cast, mend upstream, mend downstream, hookset, net sample, pause. All remappable, gamepad + keyboard defaults
-- [ ] `TimeOfDay` autoload (`scripts/autoloads/time_of_day.gd`) — full cycle (Dawn→Morning→Midday→Afternoon→Dusk→Night), configurable time scale (default 1 min/hr), session start time setting, emits `dawn` signal, exposes current period and light level (0.0–1.0)
-- [ ] `Main.tscn` — empty scene that loads and runs without errors
+- [x] Godot 4 project initialized (`project.godot`, folder structure)
+- [x] Folder structure: `scenes/`, `scripts/`, `assets/placeholder/`, `resources/`, `addons/`
+- [x] `.gitignore` — excludes `.godot/`, `*.translation`, `export_presets.cfg`
+- [x] `DifficultyConfig` resource (`resources/difficulty_config.gd`) — all three tiers (Arcade/Standard/Sim) with every difficulty-variable value from GDD difficulty table. Static factory methods `arcade()`, `standard()`, `sim()`. Values loaded from DB on startup, DB seeded from these defaults if not present.
+- [x] `DatabaseManager` autoload (`scripts/autoloads/database_manager.gd`) — opens/creates `user://flyfishing.db` on startup, runs schema migration, seeds default difficulty presets and settings. Provides typed save/load methods used by all other systems.
+- [x] Database schema (created by DatabaseManager):
+  - `settings` — key/value store for all user preferences
+  - `difficulty_presets` — one row per tier, all DifficultyConfig fields, user-editable later
+  - `sessions` — seed, start_hour, difficulty_tier, time_scale, started_at, ended_at
+  - `catches` — species, size_cm, fly_name, fly_stage, hatch_state, time_of_day, section_index, position_x, fish_variant_seed, session_id FK
+- [x] `GameManager` autoload (`scripts/autoloads/game_manager.gd`) — loads active `DifficultyConfig` from DB, holds session state (seed, start hour), exposes `new_session()` and `end_session()`
+- [x] Input map configured via `InputSetup` autoload (`scripts/autoloads/input_setup.gd`) — programmatic setup of all actions: move_left/right/up/down, feed_line, strip_line, complete_cast, cast_back, cast_forward, hookset, net_sample, pause_game. Keyboard + gamepad defaults, all remappable.
+- [x] `TimeOfDay` autoload (`scripts/autoloads/time_of_day.gd`) — full cycle (Dawn→Morning→Midday→Afternoon→Dusk→Night), configurable time scale (default 1 min/hr), session start time, emits `dawn` signal, exposes current period, light level (0.0–1.0), sun angle (degrees)
+- [x] `Main.tscn` + `scripts/main.gd` — loads and runs without errors, prints TimeOfDay state each period change to confirm all autoloads are working
 
-**Testable when:** Project opens in Godot, runs without errors, TimeOfDay advances and emits signals verifiable via print statements.
+**Testable when:** Project opens in Godot, runs without errors. TimeOfDay period changes print to console. DB file created at `user://flyfishing.db` with correct schema and seeded difficulty presets verifiable via DB browser.
 
 **GDD sections:** Difficulty Settings, Time of Day
 
