@@ -122,26 +122,23 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** Fish spawn from hold scores, move to feeding edges, respond to angler presence via vision cone and spook state machine.
 
 **Deliverables:**
-- [ ] `Fish.tscn` + `scripts/fish/fish_ai.gd` — state machine:
+- [x] `Fish.tscn` + `scripts/fish/fish_ai.gd` — state machine:
   `FEEDING → ALERT → SPOOKED → RELOCATING → HOLDING → FEEDING`
-  - Species, size class, procedural visual seed stored as properties
-  - Hold position assigned from RiverGenerator hold score map
-  - Feeding edge movement at dawn/dusk (slow/deep hold → nearby fast seam)
-  - Travel distance for fly inversely proportional to current speed
-  - Cooldown timers per size class (GDD values)
-  - Intrusion memory counter, lockdown at threshold, resets on `TimeOfDay.dawn`
-  - Relocation logic (spooked toward angler → downstream/deeper; shadow → opposite bank)
-- [ ] `FishVisionCone` (`scripts/fish/fish_vision_cone.gd`)
-  - Cone angle per species/size/difficulty
-  - Approach angle calculation from angler position
-  - Returns `approach_modifier` for `SpookCalculator`
-  - Wading vibration reduces blind spot advantage (partial cancellation)
-- [ ] `FishRenderer` (`scripts/fish/fish_renderer.gd`)
-  - Procedural visual attributes generated from fish instance seed
-  - Species-specific variation (GDD fish variation table)
-  - Depth + light level opacity scaling (`depth_factor × inverse(light_level)`)
-  - Ripple particle on movement in shallow water
-- [ ] Fish spawned into `RiverWorld.tscn` at top hold score positions
+  - Species (Brown/Rainbow/Whitefish), size class, variant seed stored as properties
+  - Hold position assigned from RiverGenerator top_holds
+  - Feeding edge: scans ±7×3 tiles for faster seam, moves there at dawn/dusk
+  - Cooldown timers per size class; intrusion memory counter; lockdown at threshold
+  - Relocation: picks hold far from angler + deeper water via score
+  - Lockdown resets on `TimeOfDay.dawn` signal
+- [x] `FishVisionCone` (`scripts/fish/fish_vision_cone.gd`)
+  - Draws blind spot cone (green triangle behind tail); opacity scales with telegraph strength
+  - Blind spot half-angle from DifficultyConfig
+- [x] `FishRenderer` (`scripts/fish/fish_renderer.gd`)
+  - Procedural color from species + variant seed (hue shift ±0.04)
+  - Depth + light level opacity scaling
+  - State debug label + intrusion memory counter drawn above fish
+  - State telegraph tint (color shifts toward red as memory builds, scaled by difficulty)
+- [x] Fish spawned dynamically in `RiverWorld._spawn_fish()` at top hold positions
 
 **Testable when:** Fish visible at hold positions, move to feeding edges at dawn/dusk. Approaching fish causes Alert then Spook transitions (visible via debug state label). Vision cone approach angle affects spook distance. Large fish locks down after 3 spooks and resets at dawn.
 

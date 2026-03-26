@@ -28,7 +28,7 @@ var river_data: RiverData  # assigned by RiverWorld after river is generated
 
 var _still_timer: float = 0.0
 var _was_still: bool = false
-var _is_moving: bool = false
+var is_moving: bool = false   # public — read by FishAI for SpookCalculator
 
 
 func _ready() -> void:
@@ -37,7 +37,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_is_moving = _handle_movement(delta)
+	is_moving = _handle_movement(delta)
 	_sync_wading_state()
 	_sync_vibration()
 	_tick_still_timer(delta)
@@ -123,7 +123,7 @@ func _sync_wading_state() -> void:
 
 func _sync_vibration() -> void:
 	vibration_radius = GameManager.difficulty.wading_vibration_radius \
-		if (is_wading and _is_moving) else 0.0
+		if (is_wading and is_moving) else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ func _sync_vibration() -> void:
 # ---------------------------------------------------------------------------
 
 func _tick_still_timer(delta: float) -> void:
-	if _is_moving:
+	if is_moving:
 		_still_timer = 0.0
 		_was_still = false
 	else:
