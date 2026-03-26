@@ -8,19 +8,20 @@ var _db_open: bool = false
 
 
 func _ready() -> void:
-	db = SQLite.new()
-	db.path = DB_PATH
-	db.verbosity_level = SQLite.QUIET
-	if not db.open_db():
-		push_error("DatabaseManager: failed to open database at %s" % DB_PATH)
+	var sqlite := SQLite.new()
+	sqlite.path = DB_PATH
+	sqlite.verbosity_level = 1  # NORMAL — visible errors during development
+	if not sqlite.open_db():
+		push_error("DatabaseManager: failed to open %s — DB unavailable" % DB_PATH)
+		# Free immediately so the destructor doesn't fire later with a confusing error
+		sqlite = null
 		return
+	db = sqlite
 	_db_open = true
+	print("DatabaseManager: opened %s" % DB_PATH)
 	_run_migrations()
 	_seed_defaults()
 
-
-func _exit_tree() -> void:
-	close()
 
 
 func _run_migrations() -> void:
