@@ -4,6 +4,7 @@ const DB_PATH := "user://flyfishing.db"
 const SCHEMA_VERSION := 1
 
 var db: SQLite
+var _db_open: bool = false
 
 
 func _ready() -> void:
@@ -13,8 +14,13 @@ func _ready() -> void:
 	if not db.open_db():
 		push_error("DatabaseManager: failed to open database at %s" % DB_PATH)
 		return
+	_db_open = true
 	_run_migrations()
 	_seed_defaults()
+
+
+func _exit_tree() -> void:
+	close()
 
 
 func _run_migrations() -> void:
@@ -234,5 +240,6 @@ func load_catches(session_id: int) -> Array:
 
 
 func close() -> void:
-	if db:
+	if db and _db_open:
 		db.close_db()
+		_db_open = false
