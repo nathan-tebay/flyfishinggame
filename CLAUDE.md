@@ -44,7 +44,7 @@ plugin versions, or build steps change.
 
 Key versions (update in `run.sh` when upgrading):
 - `GODOT_VERSION` — currently `4.3`
-- `GODOT_SQLITE_VERSION` — currently `4.7` (release asset is always `bin.zip`)
+- `GODOT_SQLITE_VERSION` — currently `4.3` (bin.zip = libraries, demo.zip = plugin.cfg + .gdextension + .gd)
 
 ## Architecture
 

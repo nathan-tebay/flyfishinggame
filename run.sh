@@ -5,13 +5,15 @@
 set -euo pipefail
 
 GODOT_VERSION="4.3"
-GODOT_SQLITE_VERSION="4.7"    # Update when upgrading the plugin
+GODOT_SQLITE_VERSION="4.3"    # Update when upgrading the plugin (must be compatible with GODOT_VERSION)
 EXPORT_IMAGE="barichello/godot-ci:${GODOT_VERSION}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${PROJECT_DIR}/builds"
 PLUGIN_DIR="${PROJECT_DIR}/addons/godot-sqlite"
-# Release asset is always named bin.zip regardless of version
-PLUGIN_URL="https://github.com/2shady4u/godot-sqlite/releases/download/v${GODOT_SQLITE_VERSION}/bin.zip"
+PLUGIN_BASE="https://github.com/2shady4u/godot-sqlite/releases/download/v${GODOT_SQLITE_VERSION}"
+# bin.zip = native libraries; demo.zip = plugin.cfg + gdsqlite.gdextension + godot-sqlite.gd
+PLUGIN_BIN_URL="${PLUGIN_BASE}/bin.zip"
+PLUGIN_DEMO_URL="${PLUGIN_BASE}/demo.zip"
 # Godot download base — binary name varies by platform (resolved at runtime)
 GODOT_RELEASE_BASE="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
 GODOT_INSTALL_DIR="${HOME}/.local/bin"
@@ -147,34 +149,53 @@ _install_plugin() {
     local force="${1:-}"
     info "Setting up godot-sqlite plugin v${GODOT_SQLITE_VERSION}..."
 
-    if [[ -f "${PLUGIN_DIR}/godot-sqlite.gdextension" ]]; then
+    if [[ -f "${PLUGIN_DIR}/gdsqlite.gdextension" ]]; then
         info "Plugin already installed at ${PLUGIN_DIR}."
         [[ "$force" == "--force" ]] || return 0
     fi
 
     local tmp; tmp="$(mktemp -d)"
 
-    info "Downloading ${PLUGIN_URL}..."
-    curl -fsSL --progress-bar -o "${tmp}/bin.zip" "${PLUGIN_URL}" \
-        || { rm -rf "$tmp"; error "Failed to download plugin. Check GODOT_SQLITE_VERSION in run.sh."; }
+    # bin.zip = native libraries (flat layout, no addons/ prefix)
+    info "Downloading binaries..."
+    curl -fsSL --progress-bar -o "${tmp}/bin.zip" "${PLUGIN_BIN_URL}" \
+        || { rm -rf "$tmp"; error "Failed to download plugin binaries. Check GODOT_SQLITE_VERSION in run.sh."; }
 
-    unzip -q "${tmp}/bin.zip" -d "${tmp}/extracted"
+    # demo.zip = plugin.cfg + gdsqlite.gdextension + godot-sqlite.gd (under demo/addons/godot-sqlite/)
+    info "Downloading plugin config..."
+    curl -fsSL --progress-bar -o "${tmp}/demo.zip" "${PLUGIN_DEMO_URL}" \
+        || { rm -rf "$tmp"; error "Failed to download plugin demo archive. Check GODOT_SQLITE_VERSION in run.sh."; }
 
-    # bin.zip extracts flat (no addons/godot-sqlite/ prefix) — detect both layouts
-    local src
-    if [[ -d "${tmp}/extracted/addons/godot-sqlite" ]]; then
-        src="${tmp}/extracted/addons/godot-sqlite"
-    else
-        src="${tmp}/extracted"
-    fi
+    # Extract binaries
+    unzip -q "${tmp}/bin.zip" -d "${tmp}/bin_extracted"
 
+    # Extract config files
+    unzip -j "${tmp}/demo.zip" \
+        "demo/addons/godot-sqlite/plugin.cfg" \
+        "demo/addons/godot-sqlite/gdsqlite.gdextension" \
+        "demo/addons/godot-sqlite/godot-sqlite.gd" \
+        -d "${tmp}/cfg" 2>/dev/null \
+        || { rm -rf "$tmp"; error "Failed to extract plugin config files. The demo.zip layout may have changed."; }
+
+    # Install: binaries first (detect flat vs nested layout), then config files
     rm -rf "$PLUGIN_DIR"
     mkdir -p "$PLUGIN_DIR"
-    cp -r "${src}/." "$PLUGIN_DIR/"
+
+    local bin_src
+    if [[ -d "${tmp}/bin_extracted/addons/godot-sqlite" ]]; then
+        bin_src="${tmp}/bin_extracted/addons/godot-sqlite"
+    else
+        bin_src="${tmp}/bin_extracted"
+    fi
+    cp -r "${bin_src}/." "$PLUGIN_DIR/"
+    cp "${tmp}/cfg/plugin.cfg"            "$PLUGIN_DIR/"
+    cp "${tmp}/cfg/gdsqlite.gdextension"  "$PLUGIN_DIR/"
+    cp "${tmp}/cfg/godot-sqlite.gd"       "$PLUGIN_DIR/"
+
     rm -rf "$tmp"
 
     info "Plugin installed → ${PLUGIN_DIR}"
-    info "Enable in Godot: Project → Project Settings → Plugins → godot-sqlite → Enable"
+    info "Enable in Godot: Project → Project Settings → Plugins → Godot SQLite → Enable"
 }
 
 # ---------------------------------------------------------------------------
@@ -254,7 +275,7 @@ cmd_clean() {
 # ---------------------------------------------------------------------------
 
 _check_plugin() {
-    if [[ ! -f "${PLUGIN_DIR}/godot-sqlite.gdextension" ]]; then
+    if [[ ! -f "${PLUGIN_DIR}/gdsqlite.gdextension" ]]; then
         warn "godot-sqlite plugin not found. Run: ./run.sh setup"
     fi
 }
