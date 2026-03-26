@@ -3,7 +3,7 @@ extends Node
 const DB_PATH := "user://flyfishing.db"
 const SCHEMA_VERSION := 1
 
-var db: SQLite
+var db = null  # SQLite — untyped to avoid GDExtension type-introspection on startup
 var _db_open: bool = false
 
 
