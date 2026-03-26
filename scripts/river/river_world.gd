@@ -1,10 +1,14 @@
 extends Node2D
 
 
-@onready var camera:     RiverCamera    = $Camera2D
-@onready var tilemap:    RiverRenderer  = $TileMap
-@onready var sky_strip:  ColorRect      = $SkyLayer/SkyStrip
-@onready var angler:     Angler         = $Angler
+@onready var camera:       RiverCamera       = $Camera2D
+@onready var tilemap:      RiverRenderer     = $TileMap
+@onready var sky_strip:    ColorRect         = $SkyLayer/SkyStrip
+@onready var angler:       Angler            = $Angler
+@onready var casting:      CastingController = $CastingController
+@onready var drift:        DriftController   = $DriftController
+@onready var rod_arc_hud:  RodArcHUD         = $HUD/RodArcHUD
+@onready var fly_selector: FlySelector       = $HUD/FlySelector
 
 var river_data: RiverData
 var _show_debug := false
@@ -16,10 +20,21 @@ func _ready() -> void:
 
 	_generate_river()
 
-	# Wire up angler and camera
-	angler.river_data   = river_data
+	# Angler + camera
+	angler.river_data    = river_data
 	camera.follow_target = angler
 	camera.set_anchor(angler.position.x)
+
+	# Casting system
+	casting.angler      = angler
+	rod_arc_hud.casting = casting
+	rod_arc_hud.drift   = drift
+
+	casting.drift_started.connect(drift.on_drift_started)
+	casting.drift_ended.connect(drift.on_drift_ended)
+	casting.mend_upstream.connect(drift.on_mend.bind(-1))
+	casting.mend_downstream.connect(drift.on_mend.bind(1))
+	casting.cast_result.connect(_on_cast_result)
 
 	_update_sky()
 	TimeOfDay.period_changed.connect(_on_period_changed)
@@ -33,7 +48,6 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Keep camera scout limits centred on the angler as they move
 	camera.set_anchor(angler.global_position.x)
 
 
@@ -87,3 +101,12 @@ func _on_angler_standing_still() -> void:
 		angler.wading_depth,
 		angler.vibration_radius,
 	])
+
+
+# ---------------------------------------------------------------------------
+# Casting events
+# ---------------------------------------------------------------------------
+
+func _on_cast_result(quality: int, target_x: float, _target_y: float) -> void:
+	var names := ["TIGHT", "SLOPPY", "BAD"]
+	print("RiverWorld: cast %s → target x=%.0f" % [names[quality], target_x])

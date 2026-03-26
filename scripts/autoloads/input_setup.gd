@@ -30,6 +30,9 @@ func _setup_actions() -> void:
 	_key_and_button("complete_cast", KEY_SPACE, JOY_BUTTON_A)
 	_key_and_button("hookset",       KEY_SPACE, JOY_BUTTON_A)
 
+	# Fly selector
+	_key_and_button("swap_fly",   KEY_TAB,    JOY_BUTTON_Y)
+
 	# Other actions
 	_key_and_button("net_sample", KEY_N,      JOY_BUTTON_B)
 	_key_and_button("pause_game", KEY_ESCAPE, JOY_BUTTON_START)

@@ -1,9 +1,13 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/river/river_world.gd" id="1_rworld"]
 [ext_resource type="Script" path="res://scripts/camera/river_camera.gd" id="2_rcam"]
 [ext_resource type="Script" path="res://scripts/river/river_renderer.gd" id="3_rrender"]
 [ext_resource type="PackedScene" path="res://scenes/Angler.tscn" id="4_angler"]
+[ext_resource type="Script" path="res://scripts/casting/casting_controller.gd" id="5_casting"]
+[ext_resource type="Script" path="res://scripts/casting/drift_controller.gd" id="6_drift"]
+[ext_resource type="Script" path="res://scripts/ui/rod_arc_hud.gd" id="7_rodhud"]
+[ext_resource type="Script" path="res://scripts/ui/fly_selector.gd" id="8_flysel"]
 
 [node name="RiverWorld" type="Node2D"]
 script = ExtResource("1_rworld")
@@ -16,6 +20,12 @@ script = ExtResource("3_rrender")
 
 [node name="Angler" parent="." instance=ExtResource("4_angler")]
 
+[node name="CastingController" type="Node" parent="."]
+script = ExtResource("5_casting")
+
+[node name="DriftController" type="Node" parent="."]
+script = ExtResource("6_drift")
+
 [node name="SkyLayer" type="CanvasLayer" parent="."]
 layer = -1
 
@@ -23,3 +33,12 @@ layer = -1
 offset_right = 1920.0
 offset_bottom = 96.0
 color = Color(0.35, 0.60, 0.90, 1)
+
+[node name="HUD" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="RodArcHUD" type="Node2D" parent="HUD"]
+script = ExtResource("7_rodhud")
+
+[node name="FlySelector" type="Node2D" parent="HUD"]
+script = ExtResource("8_flysel")

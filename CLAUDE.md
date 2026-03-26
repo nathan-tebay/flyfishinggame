@@ -57,10 +57,12 @@ Key versions (update in `run.sh` when upgrading):
 | `RiverData` | `scripts/river/river_data.gd` — plain data struct: depth_profile, current_map, tile_map, hold_scores, structures, top_holds |
 | `RiverGenerator` | `scripts/river/river_generator.gd` — full pipeline: depth profile (FastNoiseLite) → tile map → current map → structure placement → eddy currents → hold scoring → top holds. Seeded deterministically. |
 | `RiverRenderer` | `scripts/river/river_renderer.gd` — extends TileMap, builds programmatic placeholder tileset, renders RiverData to 3 layers (Base/Structures/Debug) |
-| `RiverCamera` | `scripts/camera/river_camera.gd` — horizontal-only Camera2D, section-clamped. Phase 3 will call `set_anchor(world_x)` to constrain scout range |
+| `RiverCamera` | `scripts/camera/river_camera.gd` — horizontal-only Camera2D, section-clamped. `set_anchor(world_x)` constrains scout range to ±3 screen widths |
 | `Angler` | `scenes/Angler.tscn`, `scripts/angler/angler.gd` — Player movement (bank/wading), vibration radius, standing-still signal. Shadow cone is a child Node2D. |
-| `CastingController` | Line feed/strip state, false cast rhythm (speed scales with line length), rod arc HUD (unified: direction cue + loop quality + line length indicator), mouse mend detection (upstream/downstream), complete-cast trigger, cast quality → spook chance output |
-| `DriftController` | Tracks drag accumulation on fly during drift, applies take probability modifier, receives mend events from `CastingController` to reset drag |
+| `CastingController` | `scripts/casting/casting_controller.gd` — State machine IDLE→FALSE_CASTING→PRESENTATION→RESULT→DRIFT→IDLE. Line feed/strip, false cast rhythm (scales with line length), mouse mend detection, emits `cast_result(quality, target_x, target_y)` and mend signals |
+| `DriftController` | `scripts/casting/drift_controller.gd` — Tracks drag_factor during drift (0=natural, 1=full drag). Receives mend events via `on_mend(direction)` to reset drag. Connected to CastingController signals by RiverWorld |
+| `RodArcHUD` | `scripts/ui/rod_arc_hud.gd` — bottom-left CanvasLayer HUD, _draw()-based. Shows rod arc, fly line state, timing cue (yellow dot at 80% load time), quality color on result, line-length bar |
+| `FlySelector` | `scripts/ui/fly_selector.gd` — bottom-right CanvasLayer HUD. Two flies: Elk Hair Caddis (dry) and Caddis Pupa (emerger). Tab/Y-button to swap. Exposes `fly_name()`, `fly_stage()`, `is_dry_fly()` |
 | `HooksetController` | Strike window state per fly type — floating ball indicator pause (nymph) or rise/splash (dry), asymmetric too-early/too-late logic, emits catch or spook event |
 | `FishRenderer` | Procedural fish visual generation at spawn (species-specific attribute variation seeded from fish instance ID), snapshot render for catch log photos |
 | `FishAI` | Spook state machine (FEEDING→ALERT→SPOOKED→RELOCATING→HOLDING), intrusion memory, feeding edge logic, relocation |

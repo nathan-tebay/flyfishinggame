@@ -91,26 +91,26 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** Full casting loop playable — feed line, false cast with rod arc feedback, mend, complete cast. Cast quality output available for downstream systems.
 
 **Deliverables:**
-- [ ] `CastingController` (`scripts/casting/casting_controller.gd`) — state machine:
-  `IDLE → AIMING → LINE_FEED → FALSE_CASTING → PRESENTATION → RESULT`
+- [x] `CastingController` (`scripts/casting/casting_controller.gd`) — state machine:
+  `IDLE → FALSE_CASTING → PRESENTATION → RESULT → DRIFT → IDLE`
   - Line feed/strip via input actions
   - False cast rhythm — timing window speed scales with line length
-  - Line straighten detection → direction change cue
+  - Line straighten detection → direction change cue (yellow dot at 80% of load time)
   - Loop quality calculated (tight/sloppy/bad) from timing accuracy
   - Mouse movement during drift detected as mend (upstream/downstream)
   - Complete cast input triggers PRESENTATION → RESULT
   - Emits `cast_result(quality, target_position)` signal
-- [ ] `DriftController` (`scripts/casting/drift_controller.gd`)
+- [x] `DriftController` (`scripts/casting/drift_controller.gd`)
   - Tracks drag accumulation during fly drift
   - Receives mend events, resets drag accumulation
   - Exposes `drag_factor` (0.0 = natural drift, 1.0 = full drag)
-- [ ] `RodArcHUD` (`scripts/ui/rod_arc_hud.gd`) — bottom-left HUD element:
+- [x] `RodArcHUD` (`scripts/ui/rod_arc_hud.gd`) — bottom-left HUD element:
   - Animated rod arc showing line in air
-  - Line straighten visual cue
-  - Loop shape reflects timing quality
-  - Arc depth/angle indicates line length
-- [ ] `FlySelector` UI (`scripts/ui/fly_selector.gd`) — bottom-right, shows active fly, swap input
-- [ ] Casting integrated into `RiverWorld.tscn`
+  - Line straighten visual cue (line tip turns yellow at timing window)
+  - Result quality shown by line color (green/yellow/red)
+  - Line length bar on left side
+- [x] `FlySelector` UI (`scripts/ui/fly_selector.gd`) — bottom-right, shows active fly, swap with Tab
+- [x] Casting integrated into `RiverWorld.tscn`
 
 **Testable when:** Player can feed line, false cast with visual feedback on loop quality, mend during drift, and complete a cast to a target position. Cast quality (tight/sloppy/bad) prints to console.
 
