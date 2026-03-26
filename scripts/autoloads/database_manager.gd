@@ -8,17 +8,20 @@ var _db_open: bool = false
 
 
 func _ready() -> void:
+	# Resolve user:// to an absolute path — some godot-sqlite versions require this
+	var abs_path := ProjectSettings.globalize_path(DB_PATH)
+	print("DatabaseManager: db path = ", abs_path)
+
 	var sqlite := SQLite.new()
-	sqlite.path = DB_PATH
-	sqlite.verbosity_level = 1  # NORMAL — visible errors during development
+	sqlite.path = abs_path
+	sqlite.verbosity_level = 1  # NORMAL
 	if not sqlite.open_db():
-		push_error("DatabaseManager: failed to open %s — DB unavailable" % DB_PATH)
-		# Free immediately so the destructor doesn't fire later with a confusing error
+		push_error("DatabaseManager: open_db() failed for %s" % abs_path)
 		sqlite = null
 		return
 	db = sqlite
 	_db_open = true
-	print("DatabaseManager: opened %s" % DB_PATH)
+	print("DatabaseManager: opened OK")
 	_run_migrations()
 	_seed_defaults()
 
