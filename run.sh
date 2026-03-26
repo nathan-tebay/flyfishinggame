@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# run.sh — Development and build script for FlyFishingGame
+# Requires: Godot 4.3 (for run/editor), Podman (for export)
+
+set -euo pipefail
+
+GODOT_VERSION="4.3"
+GODOT_SQLITE_VERSION="3.8.0"  # Update when upgrading the plugin
+EXPORT_IMAGE="barichello/godot-ci:${GODOT_VERSION}"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="${PROJECT_DIR}/builds"
+PLUGIN_DIR="${PROJECT_DIR}/addons/godot-sqlite"
+PLUGIN_ZIP="godot-sqlite-v${GODOT_SQLITE_VERSION}.zip"
+PLUGIN_URL="https://github.com/2shady4u/godot-sqlite/releases/download/v${GODOT_SQLITE_VERSION}/${PLUGIN_ZIP}"
+
+# --- Colour output ---
+RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
+info()  { echo -e "${GREEN}[run]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[warn]${NC} $*"; }
+error() { echo -e "${RED}[error]${NC} $*" >&2; exit 1; }
+
+# --- Detect Godot binary ---
+_godot_bin() {
+    for candidate in godot4 godot Godot godot-4; do
+        if command -v "$candidate" &>/dev/null; then
+            echo "$candidate"
+            return
+        fi
+    done
+    error "Godot binary not found. Install Godot ${GODOT_VERSION} and ensure it is on your PATH."
+}
+
+# --- Commands ---
+
+cmd_setup() {
+    info "Setting up godot-sqlite plugin v${GODOT_SQLITE_VERSION}..."
+
+    if [[ -f "${PLUGIN_DIR}/godot-sqlite.gdextension" ]]; then
+        info "Plugin already installed at ${PLUGIN_DIR}. Run with --force to reinstall."
+        [[ "${1:-}" == "--force" ]] || return 0
+    fi
+
+    command -v curl &>/dev/null || error "curl is required for setup."
+    command -v unzip &>/dev/null || error "unzip is required for setup."
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' EXIT
+
+    info "Downloading ${PLUGIN_URL}..."
+    curl -fsSL -o "${tmp_dir}/${PLUGIN_ZIP}" "${PLUGIN_URL}" \
+        || error "Failed to download plugin. Check GODOT_SQLITE_VERSION in run.sh."
+
+    info "Extracting plugin..."
+    unzip -q "${tmp_dir}/${PLUGIN_ZIP}" -d "${tmp_dir}/extracted"
+
+    # The zip places files under addons/godot-sqlite/ — copy that into our project
+    local src="${tmp_dir}/extracted/addons/godot-sqlite"
+    [[ -d "$src" ]] \
+        || error "Unexpected zip layout — expected addons/godot-sqlite/ inside archive."
+
+    rm -rf "$PLUGIN_DIR"
+    mkdir -p "$(dirname "$PLUGIN_DIR")"
+    cp -r "$src" "$PLUGIN_DIR"
+
+    info "Plugin installed at ${PLUGIN_DIR}"
+    info "Enable it in Godot: Project → Project Settings → Plugins → godot-sqlite → Enable"
+}
+
+cmd_run() {
+    _check_plugin
+    local godot
+    godot="$(_godot_bin)"
+    info "Running game with ${godot}..."
+    "$godot" --path "$PROJECT_DIR" "$@"
+}
+
+cmd_editor() {
+    _check_plugin
+    local godot
+    godot="$(_godot_bin)"
+    info "Opening editor with ${godot}..."
+    "$godot" --path "$PROJECT_DIR" --editor "$@"
+}
+
+cmd_export() {
+    local platform="${1:-all}"
+    _check_plugin
+    _check_export_presets
+    _require_podman
+
+    mkdir -p "$BUILD_DIR"
+
+    case "$platform" in
+        linux)
+            _export_platform "Linux/X11" "${BUILD_DIR}/flyfishinggame-linux.x86_64"
+            ;;
+        windows)
+            _export_platform "Windows Desktop" "${BUILD_DIR}/flyfishinggame-windows.exe"
+            ;;
+        all)
+            _export_platform "Linux/X11"       "${BUILD_DIR}/flyfishinggame-linux.x86_64"
+            _export_platform "Windows Desktop" "${BUILD_DIR}/flyfishinggame-windows.exe"
+            ;;
+        *)
+            error "Unknown platform '${platform}'. Use: linux | windows | all"
+            ;;
+    esac
+
+    info "Build output in ${BUILD_DIR}/"
+}
+
+_export_platform() {
+    local preset="$1"
+    local output="$2"
+    info "Exporting '${preset}' → ${output}..."
+    podman run --rm \
+        -v "${PROJECT_DIR}":/project:ro \
+        -v "${BUILD_DIR}":/builds \
+        "$EXPORT_IMAGE" \
+        bash -c "cd /project && godot --headless --export-release '${preset}' '${output}'"
+}
+
+cmd_shell() {
+    _require_podman
+    info "Opening shell in export container (${EXPORT_IMAGE})..."
+    podman run --rm -it \
+        -v "${PROJECT_DIR}":/project \
+        -v "${BUILD_DIR}":/builds \
+        "$EXPORT_IMAGE" \
+        bash
+}
+
+cmd_clean() {
+    info "Removing ${BUILD_DIR}..."
+    rm -rf "$BUILD_DIR"
+    info "Done."
+}
+
+# --- Guards ---
+
+_check_plugin() {
+    if [[ ! -f "${PLUGIN_DIR}/godot-sqlite.gdextension" ]]; then
+        warn "godot-sqlite plugin not found. Run: ./run.sh setup"
+    fi
+}
+
+_check_export_presets() {
+    if [[ ! -f "${PROJECT_DIR}/export_presets.cfg" ]]; then
+        error "export_presets.cfg not found. Open the Godot editor, go to Project → Export, add your target platforms, and save. Then re-run this command."
+    fi
+}
+
+_require_podman() {
+    command -v podman &>/dev/null || error "Podman is required for this command."
+}
+
+# --- Help ---
+
+cmd_help() {
+    cat <<EOF
+Usage: ./run.sh [command] [options]
+
+Commands:
+  setup [--force]     Download and install the godot-sqlite plugin
+  run   [args]        Run the game (requires Godot ${GODOT_VERSION} on PATH)
+  editor [args]       Open the Godot editor
+  export <platform>   Export a release build via Podman container
+                        platforms: linux | windows | all
+  shell               Open an interactive shell in the export container
+  clean               Remove the builds/ directory
+  help                Show this help
+
+Environment:
+  GODOT_VERSION         ${GODOT_VERSION}
+  GODOT_SQLITE_VERSION  ${GODOT_SQLITE_VERSION}
+  EXPORT_IMAGE          ${EXPORT_IMAGE}
+  BUILD_DIR             ${BUILD_DIR}
+
+Notes:
+  - run / editor require Godot to be installed locally (native GPU access needed)
+  - export / shell use Podman for a reproducible headless build environment
+  - export requires export_presets.cfg (create via editor: Project → Export)
+  - After setup, enable the plugin in: Project → Project Settings → Plugins
+EOF
+}
+
+# --- Dispatch ---
+
+case "${1:-help}" in
+    setup)   shift; cmd_setup   "$@" ;;
+    run)     shift; cmd_run     "$@" ;;
+    editor)  shift; cmd_editor  "$@" ;;
+    export)  shift; cmd_export  "${1:-all}" ;;
+    shell)   cmd_shell ;;
+    clean)   cmd_clean ;;
+    help|--help|-h) cmd_help ;;
+    *) error "Unknown command '${1}'. Run ./run.sh help for usage." ;;
+esac

@@ -24,15 +24,27 @@ See `TASKS.md` for the phased agentic implementation plan. Each phase is self-co
 
 ## Commands
 
-> To be populated once Godot project is scaffolded.
+All commands go through `run.sh`. Keep `run.sh` up to date when platforms,
+plugin versions, or build steps change.
 
 ```bash
-# Run game
-godot --path .
-
-# Export
-godot --headless --export-release "Linux/X11" ./builds/game.x86_64
+./run.sh setup            # Download godot-sqlite plugin (first-time setup)
+./run.sh run              # Run the game (native Godot, needs GPU)
+./run.sh editor           # Open Godot editor (native)
+./run.sh export linux     # Export Linux build via Podman container
+./run.sh export windows   # Export Windows build via Podman container
+./run.sh export all       # Export all platforms
+./run.sh shell            # Interactive shell in export container
+./run.sh clean            # Remove builds/
 ```
+
+**Native (run/editor):** requires Godot 4.3 on PATH (`godot4`, `godot`, or `Godot`).
+**Container (export/shell):** requires Podman. Uses `barichello/godot-ci:4.3`.
+**Export prerequisite:** `export_presets.cfg` must exist — create via editor: Project → Export.
+
+Key versions (update in `run.sh` when upgrading):
+- `GODOT_VERSION` — currently `4.3`
+- `GODOT_SQLITE_VERSION` — currently `3.8.0`
 
 ## Architecture
 
