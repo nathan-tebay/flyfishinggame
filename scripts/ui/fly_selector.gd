@@ -62,3 +62,9 @@ func _draw() -> void:
 	var hw   := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
 	draw_string(font, Vector2(-hw * 0.5, 6.0), hint,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.50, 0.50, 0.55))
+
+	# Hatch state hint
+	var hatch_label := "Hatch: " + HatchManager.hatch_state_name().replace("_", " ").capitalize()
+	var hlw := font.get_string_size(hatch_label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+	draw_string(font, Vector2(-hlw * 0.5, 19.0), hatch_label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.65, 0.80, 0.55))

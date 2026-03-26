@@ -9,8 +9,12 @@ extends Node2D
 @onready var drift:        DriftController   = $DriftController
 @onready var rod_arc_hud:  RodArcHUD         = $HUD/RodArcHUD
 @onready var fly_selector: FlySelector       = $HUD/FlySelector
+@onready var net_sampler:  NetSampler        = $NetSampler
+@onready var sample_panel: SamplePanel       = $HUD/SamplePanel
+@onready var insect_layer: CanvasLayer       = $InsectLayer
 
 var river_data: RiverData
+var _fish_list: Array = []
 var _show_debug := false
 
 
@@ -36,6 +40,16 @@ func _ready() -> void:
 	casting.mend_upstream.connect(drift.on_mend.bind(-1))
 	casting.mend_downstream.connect(drift.on_mend.bind(1))
 	casting.cast_result.connect(_on_cast_result)
+
+	# Net sampler
+	net_sampler.angler     = angler
+	net_sampler.river_data = river_data
+	angler.standing_still.connect(net_sampler.on_standing_still)
+	net_sampler.sample_complete.connect(_on_sample_complete)
+
+	# Hatch system
+	HatchManager.hatch_state_changed.connect(_on_hatch_state_changed)
+	_spawn_insects(HatchManager.current_state)
 
 	_update_sky()
 	TimeOfDay.period_changed.connect(_on_period_changed)
@@ -133,6 +147,7 @@ func _spawn_fish() -> void:
 
 		add_child(fish)
 		placed.append(wp)
+		_fish_list.append(fish)
 		count += 1
 
 	print("RiverWorld: spawned %d fish" % count)
@@ -171,9 +186,68 @@ func _on_angler_standing_still() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Hatch system
+# ---------------------------------------------------------------------------
+
+func _on_hatch_state_changed(state: int) -> void:
+	_spawn_insects(state)
+
+
+func _spawn_insects(state: int) -> void:
+	# Clear previous insect particles
+	for child in insect_layer.get_children():
+		child.queue_free()
+
+	var profiles: Array = HatchManager.active_profiles
+	if profiles.is_empty():
+		return
+
+	var vp_w := get_viewport_rect().size.x
+	const INSECTS_PER_PROFILE := 18
+
+	for p in profiles:
+		var pdict: Dictionary     = p
+		var color:     Color      = pdict["color"]
+		var movement:  String     = pdict["movement"]
+		var abundance: float      = pdict["abundance"]
+		var depth_layer: String   = pdict["depth_layer"]
+
+		var y_min: float
+		var y_max: float
+		match depth_layer:
+			"surface": y_min = 98.0;  y_max = 128.0
+			"mid":     y_min = 148.0; y_max = 196.0
+			_:         y_min = 210.0; y_max = 248.0  # bottom
+
+		var n := int(INSECTS_PER_PROFILE * abundance)
+		for _i in range(n):
+			var ip   := InsectParticle.new()
+			var sx   := randf_range(-32.0, vp_w + 32.0)
+			var sy   := randf_range(y_min, y_max)
+			var vx   := randf_range(-18.0, -6.0)
+			var vy   := randf_range(-1.0, 1.0)
+			ip.setup(color, movement, Vector2(sx, sy),
+					 Vector2(vx, vy), -32.0, vp_w + 32.0)
+			insect_layer.add_child(ip)
+
+
+# ---------------------------------------------------------------------------
+# Net sampler
+# ---------------------------------------------------------------------------
+
+func _on_sample_complete(results: Array) -> void:
+	sample_panel.show_results(results, GameManager.difficulty.show_sample_abundance_bars)
+
+
+# ---------------------------------------------------------------------------
 # Casting events
 # ---------------------------------------------------------------------------
 
-func _on_cast_result(quality: int, target_x: float, _target_y: float) -> void:
+func _on_cast_result(quality: int, target_x: float, target_y: float) -> void:
 	var names := ["TIGHT", "SLOPPY", "BAD"]
 	print("RiverWorld: cast %s → target x=%.0f" % [names[quality], target_x])
+	var target_pos := Vector2(target_x, target_y)
+	for fish in _fish_list:
+		var f: FishAI = fish
+		f.on_fly_presented(fly_selector.fly_name(), fly_selector.fly_stage(),
+						   quality, target_pos)

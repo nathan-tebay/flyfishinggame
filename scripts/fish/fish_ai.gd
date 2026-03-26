@@ -22,6 +22,13 @@ const LOCKDOWN_THRESH: Array = [-1, 5, 3]
 const FEEDING_SPEED := 22.0   # px/s moving toward feeding edge / hold
 const FLEE_SPEED    := 88.0   # px/s when relocating after spook
 
+# Radii for fly presentation checks
+const FLY_STRIKE_RADIUS := 96.0    # px — fly within reach of fish
+const BAD_CAST_RADIUS   := 160.0   # px — line-slap disturbance range
+
+# --- Signals ---
+signal take_fly   # fish decided to take; Phase 7 HooksetController connects here
+
 # --- Public: set by RiverWorld before add_child ---
 var species: int = Species.BROWN_TROUT
 var size_class: int = SpookCalculator.FishSize.MEDIUM
@@ -277,3 +284,56 @@ func _on_dawn() -> void:
 func _on_period_changed(_period: int) -> void:
 	if state == State.FEEDING:
 		_target_pos = _current_feeding_target()
+
+
+# ---------------------------------------------------------------------------
+# Fly presentation — called by RiverWorld when a cast_result fires
+# ---------------------------------------------------------------------------
+
+func on_fly_presented(fly_name: String, fly_stage: String,
+					  cast_quality: int, target_pos: Vector2) -> void:
+	var dist := position.distance_to(target_pos)
+
+	# BAD cast — line-slap disturbance regardless of fly
+	if cast_quality == 2:
+		if dist <= BAD_CAST_RADIUS:
+			if randf() < GameManager.difficulty.bad_cast_spook_chance:
+				_set_state(State.SPOOKED)
+			elif state == State.FEEDING:
+				_set_state(State.ALERT)
+		return   # bad cast never presents a fly
+
+	# Only feeding fish respond to fly presentations
+	if state != State.FEEDING:
+		return
+
+	if dist > FLY_STRIKE_RADIUS:
+		return
+
+	var result: Dictionary = FlyMatcher.evaluate(fly_name, fly_stage, GameManager.difficulty)
+	var take_prob:       float = result["take_probability"]
+	var intrusion_delta: float = result["intrusion_delta"]
+
+	# Sloppy cast reduces take probability
+	if cast_quality == 1:
+		take_prob *= 0.60
+
+	if intrusion_delta > 0.0:
+		intrusion_memory += intrusion_delta
+		_check_lockdown()
+		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+		var kind := "stage" if intrusion_delta < 1.0 else "species"
+		print("FishAI [%s %s]: fly rejected — wrong %s (Δ=%.1f mem=%.1f)" % [
+			SPECIES_NAMES[species] as String, sz_name,
+			kind, intrusion_delta, intrusion_memory,
+		])
+		_set_state(State.ALERT)
+		return
+
+	if randf() < take_prob:
+		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+		print("FishAI [%s %s]: TAKING fly '%s' (prob=%.0f%%)" % [
+			SPECIES_NAMES[species] as String, sz_name,
+			fly_name, take_prob * 100.0,
+		])
+		take_fly.emit()

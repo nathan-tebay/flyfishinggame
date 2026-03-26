@@ -150,24 +150,24 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** Full hatch cycle drives insect visibility and fish feeding mode. Fly matching affects take probability. Net sampling reveals subsurface insects.
 
 **Deliverables:**
-- [ ] `HatchManager` autoload (`scripts/autoloads/hatch_manager.gd`)
+- [x] `HatchManager` autoload (`scripts/autoloads/hatch_manager.gd`)
   - Full state machine: `NO_HATCH → PRE_HATCH → EMERGER → PEAK_HATCH → SPINNER_FALL → NO_HATCH`
   - Mother's Day Caddis timing driven by `TimeOfDay`
   - Insect spawning per hatch state and depth layer
   - Insect movement patterns (caddis skitter, mayflies drift upright)
   - Exposes active insect profile list for `FlyMatcher`
-- [ ] `FlyMatcher` (`scripts/flies/fly_matcher.gd`)
+- [x] `FlyMatcher` (`scripts/flies/fly_matcher.gd`)
   - Fly profile resource (species, stage, size, color)
   - Weighted closeness score vs active insect profile
   - Returns take probability modifier and intrusion memory delta (+0.5 for wrong stage, +1 for wrong species on Sim)
-- [ ] `NetSampler` (`scripts/angler/net_sampler.gd`)
+- [x] `NetSampler` (`scripts/angler/net_sampler.gd`)
   - Activates on input when `Angler.standing_still` signal received
   - 3–5 second sample timer, interrupted by movement
   - Samples depth layer at current position, weighted by nearby structures
   - Emits `sample_complete(results)` with insect abundance data
-- [ ] Net sample result UI panel — abundance bars (Casual/Normal), names only (Sim)
-- [ ] `FlySelector` updated — available flies filtered to current hatch-relevant patterns
-- [ ] Fish `FEEDING` state uses `FlyMatcher` result to determine take or rejection
+- [x] Net sample result UI panel — abundance bars (Casual/Normal), names only (Sim)
+- [x] `FlySelector` updated — available flies filtered to current hatch-relevant patterns
+- [x] Fish `FEEDING` state uses `FlyMatcher` result to determine take or rejection
 
 **Testable when:** Insect sprites appear at correct depth layers during each hatch phase. Standing still and sampling returns correct insect data. Presenting wrong fly causes fish to reject. Exact match produces take event.
 

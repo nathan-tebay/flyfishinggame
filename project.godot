@@ -20,6 +20,7 @@ DatabaseManager="*res://scripts/autoloads/database_manager.gd"
 GameManager="*res://scripts/autoloads/game_manager.gd"
 TimeOfDay="*res://scripts/autoloads/time_of_day.gd"
 InputSetup="*res://scripts/autoloads/input_setup.gd"
+HatchManager="*res://scripts/autoloads/hatch_manager.gd"
 
 [display]
 
