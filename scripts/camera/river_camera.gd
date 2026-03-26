@@ -2,12 +2,14 @@ class_name RiverCamera
 extends Camera2D
 
 # Horizontal-only camera for river sections.
-# Phase 2: pans freely with arrow keys across the full section.
-# Phase 3: will be constrained to ±3 screen widths around the angler.
+# Phase 3+: follows Angler (follow_target) with scout range ±3 screen widths.
+# Phase 2 free-pan mode retained when follow_target is null (for testing).
 
 const RC          := RiverConstants
-const PAN_SPEED   := 600.0   # pixels per second
-const SCOUT_RANGE := 3       # screen widths player can scout from angler (Phase 3)
+const PAN_SPEED   := 600.0  # pixels per second (free-pan mode only)
+const SCOUT_RANGE := 3      # screen widths the player can scout from angler
+
+var follow_target: Node2D = null  # set by RiverWorld after angler is spawned
 
 var _section_px: float
 var _viewport_half_w: float
@@ -20,8 +22,6 @@ func _ready() -> void:
 	_viewport_half_w = vp.x * 0.5
 	_viewport_half_h = vp.y * 0.5
 
-	# Fix vertical position so the full river height is always visible
-	# Camera y = half-screen, river TileMap starts at y=0 in world space
 	global_position  = Vector2(_viewport_half_w, _viewport_half_h)
 
 	limit_left   = 0
@@ -34,9 +34,18 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_pan(delta)
+	if follow_target:
+		_follow()
+	else:
+		_pan(delta)
 
 
+# Follow the target's x position; y stays fixed at viewport centre.
+func _follow() -> void:
+	position.x = follow_target.position.x
+
+
+# Free-pan with move_left/move_right — Phase 2 testing mode, used when no follow_target.
 func _pan(delta: float) -> void:
 	var dir := 0.0
 	if Input.is_action_pressed("move_right"):
@@ -48,14 +57,14 @@ func _pan(delta: float) -> void:
 		return
 
 	var new_x := global_position.x + dir * PAN_SPEED * delta
-	# Clamp so camera never shows beyond section bounds
 	new_x = clampf(new_x, _viewport_half_w, _section_px - _viewport_half_w)
 	global_position.x = new_x
 
 
-# Called by Phase 3 Angler to anchor the scout range around the player.
+# Constrains camera limits to ±SCOUT_RANGE screen widths around the angler.
+# Called by RiverWorld._process() each frame.
 func set_anchor(world_x: float) -> void:
-	var vp_w  := get_viewport_rect().size.x
-	var range_px := vp_w * SCOUT_RANGE
-	limit_left  = int(maxf(0.0,            world_x - range_px - _viewport_half_w))
-	limit_right = int(minf(_section_px,    world_x + range_px + _viewport_half_w))
+	var vp_w      := get_viewport_rect().size.x
+	var range_px  := vp_w * SCOUT_RANGE
+	limit_left  = int(maxf(0.0,         world_x - range_px - _viewport_half_w))
+	limit_right = int(minf(_section_px, world_x + range_px + _viewport_half_w))

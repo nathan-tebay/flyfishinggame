@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/river/river_world.gd" id="1_rworld"]
 [ext_resource type="Script" path="res://scripts/camera/river_camera.gd" id="2_rcam"]
 [ext_resource type="Script" path="res://scripts/river/river_renderer.gd" id="3_rrender"]
+[ext_resource type="PackedScene" path="res://scenes/Angler.tscn" id="4_angler"]
 
 [node name="RiverWorld" type="Node2D"]
 script = ExtResource("1_rworld")
@@ -12,6 +13,8 @@ script = ExtResource("2_rcam")
 
 [node name="TileMap" type="TileMap" parent="."]
 script = ExtResource("3_rrender")
+
+[node name="Angler" parent="." instance=ExtResource("4_angler")]
 
 [node name="SkyLayer" type="CanvasLayer" parent="."]
 layer = -1

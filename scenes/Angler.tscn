@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3 uid="uid://angler001"]
+
+[ext_resource type="Script" path="res://scripts/angler/angler.gd" id="1_angler"]
+[ext_resource type="Script" path="res://scripts/angler/shadow_cone.gd" id="2_shadow"]
+
+[node name="Angler" type="Node2D"]
+script = ExtResource("1_angler")
+
+[node name="ShadowCone" type="Node2D" parent="."]
+script = ExtResource("2_shadow")

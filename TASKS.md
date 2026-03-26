@@ -70,16 +70,16 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** Angler moves through the world. Shadow cone and vibration radius are computed and visualized (debug overlay).
 
 **Deliverables:**
-- [ ] `Angler.tscn` + `scripts/angler/angler.gd` — placeholder sprite, bank/wading movement
+- [x] `Angler.tscn` + `scripts/angler/angler.gd` — placeholder sprite, bank/wading movement
   - Bank movement: horizontal walk along top of water
   - Wading: enters water, movement slowed, depth tracked
   - Movement speed affects vibration radius
   - Standing still for 3+ seconds triggers `standing_still` signal (used by net sampler later)
-- [ ] `ShadowCone` (`scripts/angler/shadow_cone.gd`) — directional cone projected from angler, angle driven by `TimeOfDay` sun position, visible as debug overlay on Casual difficulty
-- [ ] `SpookCalculator` (`scripts/fish/spook_calculator.gd`) — full formula implementation:
+- [x] `ShadowCone` (`scripts/angler/shadow_cone.gd`) — directional cone projected from angler, angle driven by `TimeOfDay` sun position, visible as debug overlay on Casual difficulty
+- [x] `SpookCalculator` (`scripts/fish/spook_calculator.gd`) — full formula implementation:
   `base × size_multiplier × cover_reduction × time_of_day_modifier × approach_angle_modifier × difficulty_modifier`
   Wading vibration adds omnidirectional component that reduces blind spot advantage (does not fully cancel)
-- [ ] Angler placed in `RiverWorld.tscn`, moves through the generated river
+- [x] Angler placed in `RiverWorld.tscn`, moves through the generated river
 
 **Testable when:** Angler walks along bank and wades into river. Debug overlay shows shadow cone rotating with time of day. SpookCalculator returns expected values for test inputs.
 

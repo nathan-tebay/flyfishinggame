@@ -58,14 +58,14 @@ Key versions (update in `run.sh` when upgrading):
 | `RiverGenerator` | `scripts/river/river_generator.gd` — full pipeline: depth profile (FastNoiseLite) → tile map → current map → structure placement → eddy currents → hold scoring → top holds. Seeded deterministically. |
 | `RiverRenderer` | `scripts/river/river_renderer.gd` — extends TileMap, builds programmatic placeholder tileset, renders RiverData to 3 layers (Base/Structures/Debug) |
 | `RiverCamera` | `scripts/camera/river_camera.gd` — horizontal-only Camera2D, section-clamped. Phase 3 will call `set_anchor(world_x)` to constrain scout range |
-| `Angler` | Player movement (bank/wading), shadow cone projection, vibration radius, input handling |
+| `Angler` | `scenes/Angler.tscn`, `scripts/angler/angler.gd` — Player movement (bank/wading), vibration radius, standing-still signal. Shadow cone is a child Node2D. |
 | `CastingController` | Line feed/strip state, false cast rhythm (speed scales with line length), rod arc HUD (unified: direction cue + loop quality + line length indicator), mouse mend detection (upstream/downstream), complete-cast trigger, cast quality → spook chance output |
 | `DriftController` | Tracks drag accumulation on fly during drift, applies take probability modifier, receives mend events from `CastingController` to reset drag |
 | `HooksetController` | Strike window state per fly type — floating ball indicator pause (nymph) or rise/splash (dry), asymmetric too-early/too-late logic, emits catch or spook event |
 | `FishRenderer` | Procedural fish visual generation at spawn (species-specific attribute variation seeded from fish instance ID), snapshot render for catch log photos |
 | `FishAI` | Spook state machine (FEEDING→ALERT→SPOOKED→RELOCATING→HOLDING), intrusion memory, feeding edge logic, relocation |
-| `FishVisionCone` | Approach angle calculation, blind spot detection, cone width per fish size/difficulty |
-| `SpookCalculator` | Radius formula: `base × size × cover × time_of_day × approach_angle × difficulty`. Never bypass this — all spook checks route through here |
+| `FishVisionCone` | `scripts/fish/fish_vision_cone.gd` (Phase 5) — approach angle calculation, blind spot detection, cone width per fish size/difficulty |
+| `SpookCalculator` | `scripts/fish/spook_calculator.gd` — Radius formula: `base × size × cover × time_of_day × approach_angle × difficulty`. Never bypass this — all spook checks route through here. Also exposes `approach_modifier()` for FishVisionCone. |
 | `HatchManager` | Time-of-day hatch state machine (No Hatch→Pre-Hatch→Emerger→Peak→Spinner Fall), insect spawn, fish feeding mode shifts |
 | `FlyMatcher` | Weighted closeness score between fly profile and active insect profile. Outputs take probability and intrusion memory delta |
 | `NetSampler` | Stand-still timer, depth layer sampling, insect abundance results by proximity to structures |
@@ -123,6 +123,22 @@ All transitions driven by `SpookCalculator` output and `FlyMatcher` rejection ev
 NO_HATCH → PRE_HATCH → EMERGER → PEAK_HATCH → SPINNER_FALL → NO_HATCH
 ```
 Fish feeding mode (subsurface vs surface) and `FlyMatcher` best-match fly shift per hatch state.
+
+### Angler World Coordinates
+
+TileMap starts at world y=0. Key y positions (TILE_SIZE=32):
+- `BANK_Y = 80.0` — angler reference point on bank (centre of bottom bank row)
+- `WADE_ENTRY_Y = 96` — water surface (row 3 = `BANK_H_TILES * TILE_SIZE`)
+- `MAX_WADE_Y = 256` — 5 tiles below surface (hard cap; actual river depth may be shallower)
+
+Camera follows `Angler.position.x` (with smoothing). `set_anchor()` constrains limits to ±3 screen widths from angler x. When `follow_target` is null, Phase 2 free-pan mode is active.
+
+### SpookCalculator conventions
+
+- Fish always face upstream → `Vector2(-1, 0)` in world space
+- Blind spot = downstream (behind fish tail); `angle_from_tail=0°` → modifier 0.1
+- Head-on = upstream (facing fish mouth); `angle_from_tail=180°` → modifier 1.6
+- Wading vibration is handled as a separate omnidirectional radius — `max(directional_r, vibration_r)`. The vibration component is what reduces blind spot advantage when wading.
 
 ### Fish Visibility Rendering
 
