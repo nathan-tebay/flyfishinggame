@@ -35,7 +35,6 @@ func _run_migrations() -> void:
 		)
 	""")
 
-	var rows := db.query_result
 	db.query("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
 	var current_version: int = 0
 	if db.query_result.size() > 0:
