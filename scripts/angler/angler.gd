@@ -13,8 +13,7 @@ const WADE_SPEED_V    :=  40.0   # entering / exiting water
 # Y positions in world space (TileMap starts at world y = 0)
 const BANK_Y          := (RiverConstants.BANK_H_TILES - 0.5) * RiverConstants.TILE_SIZE  # 80.0
 const WADE_ENTRY_Y    := RiverConstants.BANK_H_TILES * RiverConstants.TILE_SIZE           # 96
-const MAX_WADE_DEPTH  := 5  # tiles below surface the angler can wade
-const MAX_WADE_Y      := WADE_ENTRY_Y + MAX_WADE_DEPTH * RiverConstants.TILE_SIZE  # 256
+const MAX_WADE_DEPTH  := 8  # tiles below surface — shallow fords (≤8 tiles) are crossable
 
 const STILL_THRESHOLD := 3.0  # seconds motionless before signal
 
@@ -67,23 +66,18 @@ func _handle_movement(delta: float) -> bool:
 		var spd := WADE_SPEED_H if is_wading else BANK_SPEED
 		position.x = maxf(position.x + dx * spd * delta, 0.0)
 
-	# Vertical — entering / leaving water
+	# Vertical — move up/down freely; wading state is derived from position in _sync_wading_state
 	if dy > 0.0:
-		if not is_wading:
-			is_wading = true
 		position.y = minf(position.y + WADE_SPEED_V * delta, _max_wade_y())
-	elif dy < 0.0 and is_wading:
-		var new_y := position.y - WADE_SPEED_V * delta
-		if new_y <= BANK_Y:
-			is_wading = false
-			position.y = BANK_Y
-		else:
-			position.y = new_y
+	elif dy < 0.0:
+		position.y = maxf(position.y - WADE_SPEED_V * delta, BANK_Y)
 
 	return dx != 0.0 or dy != 0.0
 
 
-# Maximum y the angler can reach in the current column, respecting river depth and cap.
+# Maximum y the angler can reach in the current column.
+# Hard cap = MAX_WADE_DEPTH tiles from surface (prevents crossing deep water).
+# In ford sections (riverbed within cap) the angler can reach the far bank.
 func _max_wade_y() -> float:
 	var depth_cap := float(WADE_ENTRY_Y + MAX_WADE_DEPTH * RiverConstants.TILE_SIZE)
 
@@ -91,15 +85,20 @@ func _max_wade_y() -> float:
 		return depth_cap
 
 	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE), 0, river_data.width - 1)
-	var river_bottom_y := float(WADE_ENTRY_Y)
+
+	# Scan downward to find the first TILE_BANK or TILE_RIVERBED (bottom boundary)
 	for row in range(RiverConstants.BANK_H_TILES, river_data.height):
 		var t: int = river_data.tile_map[col][row]
-		if t == RiverConstants.TILE_AIR or t == RiverConstants.TILE_RIVERBED:
-			break
-		river_bottom_y = float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+		if t == RiverConstants.TILE_RIVERBED:
+			# Riverbed found: allow wading to just past it (into far bank) if shallow enough
+			var riverbed_y := float(row + 1) * RiverConstants.TILE_SIZE
+			return minf(riverbed_y, depth_cap)
+		if t == RiverConstants.TILE_BANK and row > RiverConstants.BANK_H_TILES:
+			# Far bank tile (bottom bank) reached
+			var far_bank_y := float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+			return minf(far_bank_y, depth_cap)
 
-	# Stay one tile above riverbed; also respect absolute cap
-	return minf(river_bottom_y, depth_cap)
+	return depth_cap
 
 
 # ---------------------------------------------------------------------------
@@ -107,11 +106,8 @@ func _max_wade_y() -> float:
 # ---------------------------------------------------------------------------
 
 func _sync_wading_state() -> void:
-	# Correct any drift: if position somehow crept above bank level, exit water
-	if is_wading and position.y < WADE_ENTRY_Y - 0.5:
-		is_wading = false
-		position.y = BANK_Y
-
+	# Wading is fully position-driven — no separate flag needed
+	is_wading = position.y > BANK_Y + 1.0
 	if is_wading:
 		wading_depth = clampf(
 			(position.y - WADE_ENTRY_Y) / float(MAX_WADE_DEPTH * RiverConstants.TILE_SIZE),

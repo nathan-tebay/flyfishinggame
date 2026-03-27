@@ -63,7 +63,7 @@ func _draw() -> void:
 
 		CastingController.State.RESULT:
 			var qcol    := _quality_color()
-			var qloop_h := [10.0, 22.0, 38.0][casting.cast_quality]  # tight/sloppy/bad loop width
+			var qloop_h: float = ([10.0, 22.0, 38.0] as Array)[casting.cast_quality]
 			_draw_rod(ANGLE_PRESENT, 0.0)
 			var tip      := _rod_tip(ANGLE_PRESENT)
 			var len      := _line_len()
@@ -74,9 +74,9 @@ func _draw() -> void:
 			draw_line(tip, top_end, qcol, 2.0)
 			draw_line(tip + Vector2(0.0, qloop_h), bot_end, qcol, 2.0)
 			draw_arc(lc, loop_r, PI * 0.5, PI * 1.5, 14, qcol, 2.2)
-			draw_circle(lc, 5.0, qcol)  # fly dot at loop centre
-			var qlabels := ["TIGHT LOOP", "SLOPPY LOOP", "BAD CAST"]
-			_draw_status(font, qlabels[casting.cast_quality], qcol)
+			draw_circle(lc, 5.0, qcol)
+			var qlabels: Array = ["TIGHT LOOP", "SLOPPY LOOP", "BAD CAST"]
+			_draw_status(font, qlabels[casting.cast_quality] as String, qcol)
 
 		CastingController.State.DRIFT:
 			_draw_drift(font)

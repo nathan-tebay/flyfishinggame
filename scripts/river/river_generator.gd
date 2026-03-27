@@ -14,6 +14,7 @@ func generate(seed: int, config: DifficultyConfig) -> RiverData:
 
 	_init_arrays(data)
 	_generate_depth_profile(data)
+	_inject_ford_sections(data)     # carve periodic shallow crossings
 	_build_tile_map(data)
 	_generate_current_map(data)
 	_place_structures(data, config)
@@ -62,56 +63,94 @@ func _generate_depth_profile(data: RiverData) -> void:
 	var noise := FastNoiseLite.new()
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	noise.seed      = data.seed
-	noise.frequency = 0.003   # Low frequency = large pool/riffle features
+	noise.frequency = 0.003
 
 	for x in data.width:
 		var raw        := noise.get_noise_1d(float(x))
-		var normalized := (raw + 1.0) * 0.5          # remap [-1,1] → [0,1]
-		# Bias toward deeper water — river should fill ~2/3 of screen height.
-		# Range [0.45, 1.0], mean ~0.72. Shallow riffles stay possible at lower end.
-		data.depth_profile[x] = clampf(normalized * 0.55 + 0.45, 0.0, 1.0)
+		var normalized := (raw + 1.0) * 0.5
+		# Range [0.20, 1.0] — lower bound allows natural shallow riffles; fords injected separately
+		data.depth_profile[x] = clampf(normalized * 0.80 + 0.20, 0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
-# Step 2 — Base tile map from depth profile
+# Step 1b — Ford injection: carve periodic shallow crossings into depth profile
+# ---------------------------------------------------------------------------
+
+func _inject_ford_sections(data: RiverData) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(data.seed + 22222)
+	const FORD_SPACING := 380   # average tiles between ford centres
+	const FORD_WIDTH   := 50    # tiles across the ford transition
+	const FORD_DEPTH   := 0.08  # depth_val at ford centre (very shallow)
+
+	var x := rng.randi_range(80, FORD_SPACING)
+	while x < data.width - 80:
+		var hw := FORD_WIDTH / 2
+		for dx in range(-hw, hw + 1):
+			var fx := x + dx
+			if fx < 0 or fx >= data.width:
+				continue
+			# Smooth cosine taper from normal depth at edges to FORD_DEPTH at centre
+			var t := float(abs(dx)) / float(hw)  # 0 = centre, 1 = edge
+			var taper := (1.0 - cos(t * PI)) * 0.5   # smooth 0→1
+			var current: float = data.depth_profile[fx]
+			data.depth_profile[fx] = lerpf(FORD_DEPTH, current, taper)
+		x += FORD_SPACING + rng.randi_range(-60, 60)
+
+
+# ---------------------------------------------------------------------------
+# Step 2 — Tile map: U-shape cross-section (deep channel, shallow banks)
 # ---------------------------------------------------------------------------
 
 func _build_tile_map(data: RiverData) -> void:
-	var bank_h     := RiverConstants.BANK_H_TILES
-	var min_depth  := RiverConstants.MIN_DEPTH_TILES
-	var depth_span := RiverConstants.MAX_DEPTH_TILES - min_depth
+	var top_bank   := RiverConstants.BANK_H_TILES          # 3
+	var bot_bank_h := RiverConstants.BOTTOM_BANK_H_TILES   # 3
+	var min_depth  := RiverConstants.MIN_DEPTH_TILES       # 4
+	var max_depth  := RiverConstants.MAX_DEPTH_TILES       # 22
 
-	# 2D noise varies the depth-tier boundaries (SURFACE/MID/DEEP) across the
-	# river cross-section, creating visible variation in channel depth.
+	# Water always spans from just below top bank to just above bottom bank.
+	# depth_profile controls the tier distribution (all-surface ford vs deep pool).
+	var water_top  := top_bank           # y=3, first water row
+	var water_span := max_depth          # maximum rows of water
+
+	# 2D noise for lateral variation in tier boundaries
 	var tier_noise := FastNoiseLite.new()
 	tier_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	tier_noise.seed       = data.seed + 54321
 	tier_noise.frequency  = 0.018
 
 	for x in data.width:
-		var depth_val: float  = data.depth_profile[x]
-		var water_cols := min_depth + int(depth_val * float(depth_span))
-		var bottom_y   := bank_h + water_cols  # y of riverbed tile (inclusive)
+		var depth_val: float = data.depth_profile[x]
+		# Actual water column height for this column
+		var water_cols := min_depth + int(depth_val * float(max_depth - min_depth))
+		var riverbed_y := water_top + water_cols  # row index of riverbed tile
 
 		for y in data.height:
-			if y < bank_h:
+			if y < top_bank:
 				data.tile_map[x][y] = RiverConstants.TILE_BANK
-			elif y == bank_h:
+			elif y < water_top:
 				data.tile_map[x][y] = RiverConstants.TILE_SURFACE
-			elif y < bottom_y:
-				# 2D noise shifts tier boundaries ±15% of water column height,
-				# creating channels that look deeper or shallower across the river.
-				var tn := tier_noise.get_noise_2d(float(x), float(y)) * 0.15
-				var frac := float(y - bank_h) / float(water_cols)
-				if frac < (0.28 + tn):
-					data.tile_map[x][y] = RiverConstants.TILE_SURFACE
-				elif frac < (0.58 + tn):
+			elif y < riverbed_y:
+				# U-shaped depth: deepest in the centre of the water column.
+				# frac=0 at top edge, frac=1 at bottom edge; centre = 0.5
+				var frac      := float(y - water_top) / float(water_cols)
+				var centre_d  := abs(frac - 0.5) * 2.0   # 0 = centre, 1 = edge
+				var tn        := tier_noise.get_noise_2d(float(x), float(y)) * 0.10
+				# Thresholds shrink as depth_val drops → ford = all SURFACE
+				var deep_thr  := lerpf(-0.2, 0.38, depth_val)
+				var mid_thr   := lerpf(0.25, 0.70, depth_val)
+				if centre_d < (deep_thr + tn):
+					data.tile_map[x][y] = RiverConstants.TILE_DEEP
+				elif centre_d < (mid_thr + tn):
 					data.tile_map[x][y] = RiverConstants.TILE_MID_DEPTH
 				else:
-					data.tile_map[x][y] = RiverConstants.TILE_DEEP
-			elif y == bottom_y:
+					data.tile_map[x][y] = RiverConstants.TILE_SURFACE
+			elif y == riverbed_y:
 				data.tile_map[x][y] = RiverConstants.TILE_RIVERBED
-			# y > bottom_y stays TILE_AIR
+			elif y < riverbed_y + bot_bank_h + 1:
+				# Far (bottom) bank — appears right after the riverbed
+				data.tile_map[x][y] = RiverConstants.TILE_BANK
+			# y beyond that stays TILE_AIR
 
 
 # ---------------------------------------------------------------------------
