@@ -53,8 +53,8 @@ static func arcade() -> DifficultyConfig:
 	c.wrong_species_intrusion_delta = 0.0
 	c.show_sample_abundance_bars = true
 	c.hookset_window_duration = 1.2
-	c.structure_density_multiplier = 1.5
-	c.fish_per_section = 18
+	c.structure_density_multiplier = 2.0
+	c.fish_per_section = 26
 	return c
 
 
@@ -75,8 +75,8 @@ static func standard() -> DifficultyConfig:
 	c.wrong_species_intrusion_delta = 0.0
 	c.show_sample_abundance_bars = true
 	c.hookset_window_duration = 0.8
-	c.structure_density_multiplier = 1.0
-	c.fish_per_section = 12
+	c.structure_density_multiplier = 1.5
+	c.fish_per_section = 18
 	return c
 
 
@@ -97,8 +97,8 @@ static func sim() -> DifficultyConfig:
 	c.wrong_species_intrusion_delta = 1.0
 	c.show_sample_abundance_bars = false
 	c.hookset_window_duration = 0.5
-	c.structure_density_multiplier = 0.6
-	c.fish_per_section = 7
+	c.structure_density_multiplier = 1.0
+	c.fish_per_section = 12
 	return c
 
 

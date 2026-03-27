@@ -6,10 +6,10 @@ const SCREEN_W_TILES   := 60    # 1920 / TILE_SIZE
 const SECTION_W_TILES  := 1440  # SECTION_SCREENS * SCREEN_W_TILES
 
 # River cross-section height in tiles (below sky strip)
-const RIVER_H_TILES    := 24
+const RIVER_H_TILES    := 30
 const BANK_H_TILES     := 3     # tiles above waterline
-const MIN_DEPTH_TILES  := 4     # shallowest possible water column
-const MAX_DEPTH_TILES  := 21    # deepest possible (RIVER_H_TILES - BANK_H_TILES)
+const MIN_DEPTH_TILES  := 6     # shallowest possible water column (riffle)
+const MAX_DEPTH_TILES  := 26    # deepest possible (RIVER_H_TILES - BANK_H_TILES - 1)
 
 # Sky strip sits above the TileMap in screen space (via CanvasLayer)
 const SKY_HEIGHT_PX    := 96    # BANK_H_TILES * TILE_SIZE — kept as px for CanvasLayer sizing

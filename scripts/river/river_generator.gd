@@ -67,8 +67,9 @@ func _generate_depth_profile(data: RiverData) -> void:
 	for x in data.width:
 		var raw        := noise.get_noise_1d(float(x))
 		var normalized := (raw + 1.0) * 0.5          # remap [-1,1] → [0,1]
-		# Bias toward mid-depth so extremes (pure pool / pure riffle) are rarer
-		data.depth_profile[x] = clampf(normalized * 0.8 + 0.1, 0.0, 1.0)
+		# Bias toward deeper water — river should fill ~2/3 of screen height.
+		# Range [0.45, 1.0], mean ~0.72. Shallow riffles stay possible at lower end.
+		data.depth_profile[x] = clampf(normalized * 0.55 + 0.45, 0.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -80,10 +81,17 @@ func _build_tile_map(data: RiverData) -> void:
 	var min_depth  := RiverConstants.MIN_DEPTH_TILES
 	var depth_span := RiverConstants.MAX_DEPTH_TILES - min_depth
 
+	# 2D noise varies the depth-tier boundaries (SURFACE/MID/DEEP) across the
+	# river cross-section, creating visible variation in channel depth.
+	var tier_noise := FastNoiseLite.new()
+	tier_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	tier_noise.seed       = data.seed + 54321
+	tier_noise.frequency  = 0.018
+
 	for x in data.width:
 		var depth_val: float  = data.depth_profile[x]
 		var water_cols := min_depth + int(depth_val * float(depth_span))
-		var bottom_y   := bank_h + water_cols - 1  # y of riverbed tile
+		var bottom_y   := bank_h + water_cols  # y of riverbed tile (inclusive)
 
 		for y in data.height:
 			if y < bank_h:
@@ -91,9 +99,13 @@ func _build_tile_map(data: RiverData) -> void:
 			elif y == bank_h:
 				data.tile_map[x][y] = RiverConstants.TILE_SURFACE
 			elif y < bottom_y:
-				# Split water column: upper 50% = MID_DEPTH, lower 50% = DEEP
+				# 2D noise shifts tier boundaries ±15% of water column height,
+				# creating channels that look deeper or shallower across the river.
+				var tn := tier_noise.get_noise_2d(float(x), float(y)) * 0.15
 				var frac := float(y - bank_h) / float(water_cols)
-				if frac < 0.5:
+				if frac < (0.28 + tn):
+					data.tile_map[x][y] = RiverConstants.TILE_SURFACE
+				elif frac < (0.58 + tn):
 					data.tile_map[x][y] = RiverConstants.TILE_MID_DEPTH
 				else:
 					data.tile_map[x][y] = RiverConstants.TILE_DEEP
@@ -135,13 +147,14 @@ func _generate_current_map(data: RiverData) -> void:
 func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 	var density := config.structure_density_multiplier
 
-	# Target counts per structure type, scaled by density
+	# Target counts per structure type, scaled by density.
+	# Increased base counts for richer habitat and more fish holding spots.
 	var counts := {
-		RiverConstants.TILE_WEED_BED:      int(8  * density),
-		RiverConstants.TILE_ROCK:          int(15 * density),
-		RiverConstants.TILE_BOULDER:       int(4  * density),
-		RiverConstants.TILE_UNDERCUT_BANK: int(6  * density),
-		RiverConstants.TILE_GRAVEL_BAR:    int(5  * density),
+		RiverConstants.TILE_WEED_BED:      int(14 * density),
+		RiverConstants.TILE_ROCK:          int(28 * density),
+		RiverConstants.TILE_BOULDER:       int(8  * density),
+		RiverConstants.TILE_UNDERCUT_BANK: int(10 * density),
+		RiverConstants.TILE_GRAVEL_BAR:    int(8  * density),
 	}
 
 	for tile_type: int in counts:
@@ -254,9 +267,10 @@ func _apply_eddy_currents(data: RiverData) -> void:
 		var sy: int = structure["y"]
 		var sh: int = structure["h"]
 
-		# Eddy extends downstream (right) for 2× structure width
+		# Eddy extends downstream (right) for 3× structure width + buffer.
+		# Stronger and longer eddies make downstream holds clearly preferable.
 		var eddy_start := sx + sw
-		var eddy_len   := sw * 2 + 2
+		var eddy_len   := sw * 3 + 4
 
 		for dx in eddy_len:
 			var ex := eddy_start + dx
@@ -264,7 +278,7 @@ func _apply_eddy_currents(data: RiverData) -> void:
 				break
 			# Eddy strength fades linearly with distance
 			var fade := 1.0 - (float(dx) / float(eddy_len))
-			for dy in range(-1, sh + 1):
+			for dy in range(-1, sh + 2):
 				var ey := sy + dy
 				if ey < 0 or ey >= data.height:
 					continue
@@ -272,7 +286,7 @@ func _apply_eddy_currents(data: RiverData) -> void:
 				if t == RiverConstants.TILE_AIR or t == RiverConstants.TILE_BANK:
 					continue
 				data.current_map[ex][ey] = lerpf(
-					data.current_map[ex][ey] as float, 0.12, fade * 0.75
+					data.current_map[ex][ey] as float, 0.08, fade * 0.85
 				)
 
 
@@ -298,17 +312,26 @@ func _calculate_hold_scores(data: RiverData) -> void:
 
 
 func _cover_at(data: RiverData, x: int, y: int) -> float:
-	# Maximum cover value from any structure within a 4-tile radius
+	# Maximum cover value from any structure within a 4-tile radius.
+	# Rocks/boulders: tiles upstream of the structure get a heavy cover penalty
+	# since the eddy (and therefore the good holding water) is downstream.
 	var best := 0.0
 	for structure: Dictionary in data.structures:
 		var sx: int = structure["x"]
 		var sy: int = structure["y"]
 		var sw: int = structure["w"]
 		var sh: int = structure["h"]
+		var tile_type: int = structure["type"]
 		var dist_x := maxi(0, maxi(sx - x, x - (sx + sw - 1)))
 		var dist_y := maxi(0, maxi(sy - y, y - (sy + sh - 1)))
-		if dist_x <= 4 and dist_y <= 4:
-			best = maxf(best, float(structure["cover"]))
+		if dist_x > 4 or dist_y > 4:
+			continue
+		var cover_val: float = float(structure["cover"])
+		# Upstream of a rock/boulder: only 15% cover — not in the eddy
+		if (tile_type == RiverConstants.TILE_ROCK or tile_type == RiverConstants.TILE_BOULDER) \
+				and x < sx:
+			cover_val *= 0.15
+		best = maxf(best, cover_val)
 	return best
 
 

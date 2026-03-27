@@ -66,9 +66,9 @@ Player moves along river bank or wades into the river. Each mode has distinct sp
 Fish have a directional vision cone. Approach angle relative to the fish's facing direction (always upstream) determines spook distance.
 
 ```
-                ←←← upstream (fish facing direction)
+				←←← upstream (fish facing direction)
    [BLIND SPOT] 🐟 [WIDE VISION CONE ~120° each side]
-                ←←← current flow
+				←←← current flow
 ```
 
 | Approach Direction | Vision Exposure | Spook Distance |
@@ -157,7 +157,7 @@ Fly inventory is unlimited. Available selections are filtered to species appropr
 
 ```
 Exact Match → Close Match → Generic Attractor → Wrong Stage → Wrong Species
-    ↓               ↓               ↓                ↓              ↓
+	↓               ↓               ↓                ↓              ↓
 Highest take    Good take       Low take          Inspect +      Ignore or
 probability     probability     probability        refuse         flee (Sim)
 ```
@@ -309,11 +309,11 @@ Always routed through `SpookCalculator` — never hardcoded.
 
 ```
 spook_radius = base_radius
-             × size_multiplier
-             × cover_reduction
-             × time_of_day_modifier
-             × approach_angle_modifier   ← vision cone
-             × difficulty_modifier
+			 × size_multiplier
+			 × cover_reduction
+			 × time_of_day_modifier
+			 × approach_angle_modifier   ← vision cone
+			 × difficulty_modifier
 ```
 
 | Factor | Effect |

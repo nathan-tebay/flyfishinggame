@@ -87,20 +87,28 @@ func _draw() -> void:
 
 	body_col.a = opacity
 
-	# Body ellipse (12 points)
+	# Body ellipse — slightly narrowed on the left (head) side to suggest taper
 	var pts := PackedVector2Array()
-	for i in 12:
-		var a := float(i) / 12.0 * TAU
-		pts.append(Vector2(cos(a) * _body_w, sin(a) * _body_h))
+	for i in 16:
+		var a := float(i) / 16.0 * TAU
+		# Head taper: reduce x radius on left (cos(a) < 0) side by ~20%
+		var bw := _body_w * (1.0 if cos(a) >= 0.0 else 0.80)
+		pts.append(Vector2(cos(a) * bw, sin(a) * _body_h))
 	draw_colored_polygon(pts, body_col)
 
-	# Tail fin pointing downstream (+x = right, fish face left)
+	# Tail fin (caudal fin) on downstream (+x) side — fish face upstream (left)
 	var tail_col := Color(body_col.r, body_col.g, body_col.b, opacity * 0.82)
 	draw_colored_polygon(PackedVector2Array([
-		Vector2(_body_w * 0.65, 0.0),
-		Vector2(_body_w + 7.0, -_body_h * 0.80),
-		Vector2(_body_w + 7.0,  _body_h * 0.80),
+		Vector2(_body_w * 0.60, 0.0),
+		Vector2(_body_w + 8.0, -_body_h * 0.90),
+		Vector2(_body_w + 8.0,  _body_h * 0.90),
 	]), tail_col)
+
+	# Eye — on the HEAD (upstream / left, -x) side. Unambiguously marks facing direction.
+	var eye_x := -_body_w * 0.62
+	var eye_y := -_body_h * 0.38
+	draw_circle(Vector2(eye_x, eye_y), maxf(_body_h * 0.22, 1.5),
+		Color(0.05, 0.05, 0.05, opacity))
 
 	_draw_state_label()
 
