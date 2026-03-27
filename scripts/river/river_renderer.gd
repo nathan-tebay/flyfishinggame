@@ -13,6 +13,9 @@ var _time: float = 0.0
 # Sparse list of ripple anchors: { wx, wy, speed, phase }
 var _ripples: Array = []
 
+# Grid-sampled flow arrows: { wx, wy, speed }
+var _arrows: Array = []
+
 
 # Call once before first render — idempotent.
 func build_tileset() -> void:
@@ -49,6 +52,7 @@ func render(data: RiverData) -> void:
 	_paint_structures(data)
 	_river_data = data
 	_build_ripples(data)
+	_build_arrows(data)
 
 
 func show_hold_debug(data: RiverData, top_n: int = 30) -> void:
@@ -79,6 +83,7 @@ func _draw() -> void:
 	if _river_data == null:
 		return
 	_draw_ripples()
+	_draw_arrows()
 
 
 func _build_ripples(data: RiverData) -> void:
@@ -135,6 +140,39 @@ func _draw_ripples() -> void:
 		# Faint trailing arm for depth
 		draw_line(Vector2(wx - sz * 0.6, wy - sz * 0.30), Vector2(wx, wy), col * Color(1,1,1,0.5), 0.8)
 		draw_line(Vector2(wx - sz * 0.6, wy + sz * 0.30), Vector2(wx, wy), col * Color(1,1,1,0.5), 0.8)
+
+
+func _build_arrows(data: RiverData) -> void:
+	_arrows.clear()
+	var ts := float(RiverConstants.TILE_SIZE)
+	for tx in range(0, data.width, 4):
+		for ty in range(RiverConstants.BANK_H_TILES, data.height, 3):
+			var tile: int = data.tile_map[tx][ty]
+			if tile != RiverConstants.TILE_SURFACE and \
+			   tile != RiverConstants.TILE_MID_DEPTH and \
+			   tile != RiverConstants.TILE_DEEP:
+				continue
+			var speed: float = data.current_map[tx][ty]
+			if speed < 0.10:
+				continue
+			_arrows.append({
+				"wx":    float(tx) * ts + ts * 0.5,
+				"wy":    float(ty) * ts + ts * 0.5,
+				"speed": speed,
+			})
+
+
+func _draw_arrows() -> void:
+	for a in _arrows:
+		var ad: Dictionary = a
+		var speed: float = ad["speed"]
+		var wx: float    = ad["wx"]
+		var wy: float    = ad["wy"]
+		var len: float   = lerpf(4.0, 18.0, speed)
+		var col: Color   = Color(1.0, 1.0, 1.0, speed * 0.50)
+		draw_line(Vector2(wx - len * 0.5, wy), Vector2(wx + len * 0.5, wy), col, 1.0)
+		draw_line(Vector2(wx + len * 0.5, wy), Vector2(wx + len * 0.5 - 4.0, wy - 3.0), col, 1.0)
+		draw_line(Vector2(wx + len * 0.5, wy), Vector2(wx + len * 0.5 - 4.0, wy + 3.0), col, 1.0)
 
 
 # ---------------------------------------------------------------------------

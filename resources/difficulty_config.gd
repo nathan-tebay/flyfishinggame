@@ -36,8 +36,8 @@ enum Tier { ARCADE, STANDARD, SIM }
 @export var fish_per_section: int = 12
 
 
-static func arcade() -> DifficultyConfig:
-	var c := DifficultyConfig.new()
+static func arcade():
+	var c = load("res://resources/difficulty_config.gd").new()
 	c.tier = Tier.ARCADE
 	c.base_spook_radius = 100.0
 	c.large_fish_radius_multiplier = 1.2
@@ -58,8 +58,8 @@ static func arcade() -> DifficultyConfig:
 	return c
 
 
-static func standard() -> DifficultyConfig:
-	var c := DifficultyConfig.new()
+static func standard():
+	var c = load("res://resources/difficulty_config.gd").new()
 	c.tier = Tier.STANDARD
 	c.base_spook_radius = 150.0
 	c.large_fish_radius_multiplier = 1.5
@@ -80,8 +80,8 @@ static func standard() -> DifficultyConfig:
 	return c
 
 
-static func sim() -> DifficultyConfig:
-	var c := DifficultyConfig.new()
+static func sim():
+	var c = load("res://resources/difficulty_config.gd").new()
 	c.tier = Tier.SIM
 	c.base_spook_radius = 220.0
 	c.large_fish_radius_multiplier = 2.0

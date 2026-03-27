@@ -1,5 +1,7 @@
 extends Node
 
+const DifficultyConfig = preload("res://resources/difficulty_config.gd")
+
 var difficulty: DifficultyConfig
 var session_id: int = -1
 var session_seed: int = 0

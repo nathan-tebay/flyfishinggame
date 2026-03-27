@@ -13,7 +13,7 @@ const WADE_SPEED_V    :=  40.0   # entering / exiting water
 # Y positions in world space (TileMap starts at world y = 0)
 const BANK_Y          := (RiverConstants.BANK_H_TILES - 0.5) * RiverConstants.TILE_SIZE  # 80.0
 const WADE_ENTRY_Y    := RiverConstants.BANK_H_TILES * RiverConstants.TILE_SIZE           # 96
-const MAX_WADE_DEPTH  := 8  # tiles below surface — shallow fords (≤8 tiles) are crossable
+const MAX_WADE_DEPTH  := 10  # tiles below surface — shallow fords (≤10 tiles) are crossable
 
 const STILL_THRESHOLD := 3.0  # seconds motionless before signal
 
@@ -39,6 +39,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	is_moving = _handle_movement(delta)
 	_sync_wading_state()
+	_snap_to_bank_surface()
 	_sync_vibration()
 	_tick_still_timer(delta)
 	queue_redraw()
@@ -61,44 +62,87 @@ func _handle_movement(delta: float) -> bool:
 	elif Input.is_action_pressed("move_up"):
 		dy = -1.0
 
-	# Horizontal — upper bound is effectively unlimited; camera limits constrain scouting
+	# Horizontal — current slows wading; bank walking is always full speed
 	if dx != 0.0:
-		var spd := WADE_SPEED_H if is_wading else BANK_SPEED
+		var spd: float
+		if is_wading:
+			# Faster current = more resistance. At current=0.95: ~18 px/s. At current=0.25: ~48 px/s.
+			var current: float = _current_at_position()
+			spd = WADE_SPEED_H * maxf(0.25, 1.0 - current * 0.80)
+		else:
+			spd = BANK_SPEED
 		position.x = maxf(position.x + dx * spd * delta, 0.0)
+		# After moving to a new column, clamp y to that column's wading limit.
+		# Prevents drifting into TILE_AIR when walking from a deep section into a ford.
+		position.y = minf(position.y, _max_wade_y())
 
-	# Vertical — move up/down freely; wading state is derived from position in _sync_wading_state
+	# Vertical — down enters/deepens in water; up exits water or re-enters from far bank.
+	# Near bank surface position is managed by _snap_to_bank_surface, not the UP key.
 	if dy > 0.0:
 		position.y = minf(position.y + WADE_SPEED_V * delta, _max_wade_y())
 	elif dy < 0.0:
-		position.y = maxf(position.y - WADE_SPEED_V * delta, BANK_Y)
+		var ne_y := _near_bank_edge_y()
+		if is_wading:
+			# Exiting water toward near bank — cap at near bank edge
+			position.y = maxf(position.y - WADE_SPEED_V * delta, ne_y)
+		elif position.y > ne_y + RiverConstants.TILE_SIZE * 2.0:
+			# On far bank — move freely upward to re-enter water
+			position.y -= WADE_SPEED_V * delta
 
 	return dx != 0.0 or dy != 0.0
 
 
 # Maximum y the angler can reach in the current column.
-# Hard cap = MAX_WADE_DEPTH tiles from surface (prevents crossing deep water).
-# In ford sections (riverbed within cap) the angler can reach the far bank.
+# Scans tile-by-tile from the near bank downward:
+#   TILE_DEEP → angler stops at the last passable row above it (dark blue = not wadable)
+#   TILE_RIVERBED without TILE_DEEP → ford/shallow crossing, angler can reach far bank
+#   TILE_BANK (far bank) → crossable, land on it
+# Fords always lack TILE_DEEP (depth_val ≤ 0.35 generates no deep tiles), so they are
+# always fully crossable. Weed beds and gravel bars sit on surface/mid tiles — passable.
 func _max_wade_y() -> float:
-	var depth_cap := float(WADE_ENTRY_Y + MAX_WADE_DEPTH * RiverConstants.TILE_SIZE)
-
 	if river_data == null:
-		return depth_cap
+		return BANK_Y + float(4 * RiverConstants.TILE_SIZE)
 
-	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE), 0, river_data.width - 1)
+	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE),
+			0, river_data.width - 1)
 
-	# Scan downward to find the first TILE_BANK or TILE_RIVERBED (bottom boundary)
-	for row in range(RiverConstants.BANK_H_TILES, river_data.height):
+	var water_start: int = RiverConstants.BANK_H_TILES
+	if river_data.top_bank_profile.size() > col:
+		water_start = river_data.top_bank_profile[col]
+
+	for row in range(water_start, river_data.height):
 		var t: int = river_data.tile_map[col][row]
-		if t == RiverConstants.TILE_RIVERBED:
-			# Riverbed found: allow wading to just past it (into far bank) if shallow enough
-			var riverbed_y := float(row + 1) * RiverConstants.TILE_SIZE
-			return minf(riverbed_y, depth_cap)
-		if t == RiverConstants.TILE_BANK and row > RiverConstants.BANK_H_TILES:
-			# Far bank tile (bottom bank) reached
-			var far_bank_y := float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
-			return minf(far_bank_y, depth_cap)
+		match t:
+			RiverConstants.TILE_DEEP:
+				# Stop at the center of the last passable row (one above TILE_DEEP)
+				if row == water_start:
+					return _near_bank_edge_y()  # deep starts immediately — can't enter
+				return float(row - 1) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+			RiverConstants.TILE_RIVERBED:
+				# No TILE_DEEP in this column — ford or shallow section, far bank reachable
+				if river_data.bottom_bank_profile.size() > col:
+					var fbr: int = river_data.bottom_bank_profile[col]
+					return float(fbr) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+				return float(row) * RiverConstants.TILE_SIZE
+			RiverConstants.TILE_BANK:
+				# Far bank tile reached directly — land on it
+				return float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
 
-	return depth_cap
+	# Fallback — should not be reached with a valid tile map
+	return float(water_start + MAX_WADE_DEPTH) * RiverConstants.TILE_SIZE
+
+
+# Y-position of the near-bank surface (bottom bank row, adjacent to water) at the angler's column.
+# Varies as the river curves; the angler walks along this line automatically via snap.
+func _near_bank_edge_y() -> float:
+	if river_data == null:
+		return BANK_Y
+	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE),
+			0, river_data.width - 1)
+	if river_data.top_bank_profile.size() > col:
+		var tbh: int = river_data.top_bank_profile[col]
+		return float(tbh - 1) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+	return BANK_Y
 
 
 # ---------------------------------------------------------------------------
@@ -106,15 +150,74 @@ func _max_wade_y() -> float:
 # ---------------------------------------------------------------------------
 
 func _sync_wading_state() -> void:
-	# Wading is fully position-driven — no separate flag needed
-	is_wading = position.y > BANK_Y + 1.0
+	# Tile-based: angler is wading whenever they are NOT on a TILE_BANK or TILE_AIR cell.
+	# This correctly handles far-bank fishing — standing on the far bank = not wading.
+	var col := 0
+	if river_data != null:
+		col = clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE),
+				0, river_data.width - 1)
+		var row := clampi(int(position.y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
+		var tile: int = river_data.tile_map[col][row]
+		is_wading = (tile != RiverConstants.TILE_BANK and tile != RiverConstants.TILE_AIR)
+	else:
+		is_wading = position.y > BANK_Y + 1.0
+
 	if is_wading:
+		# Scale depth against this column's actual water height (near bank → far bank).
+		# Deep pools max out at ~0.4 (blocked by TILE_DEEP). Fords reach 1.0 at the far bank.
+		# This ensures shallower columns show lower readings, not a fixed-scale fraction.
+		var tbh_val := RiverConstants.BANK_H_TILES
+		if river_data != null and river_data.top_bank_profile.size() > col:
+			tbh_val = river_data.top_bank_profile[col]
+		var water_surface_y := float(tbh_val) * RiverConstants.TILE_SIZE
+		var water_height_y  := float(MAX_WADE_DEPTH) * float(RiverConstants.TILE_SIZE)
+		if river_data != null and river_data.bottom_bank_profile.size() > col:
+			var fbr: int = river_data.bottom_bank_profile[col]
+			water_height_y = float(fbr - tbh_val) * float(RiverConstants.TILE_SIZE)
 		wading_depth = clampf(
-			(position.y - WADE_ENTRY_Y) / float(MAX_WADE_DEPTH * RiverConstants.TILE_SIZE),
+			(position.y - water_surface_y) / maxf(water_height_y, 1.0),
 			0.0, 1.0
 		)
 	else:
 		wading_depth = 0.0
+
+
+# Returns the current speed (0-1) at the angler's tile position. Zero when not wading.
+func _current_at_position() -> float:
+	if river_data == null or not is_wading:
+		return 0.0
+	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE),
+			0, river_data.width - 1)
+	var row := clampi(int(position.y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
+	return river_data.current_map[col][row]
+
+
+# Snaps angler to the bank-water boundary as the river profile curves.
+# Near bank: tracks top_bank_profile (water edge). Far bank: tracks bottom_bank_profile.
+func _snap_to_bank_surface() -> void:
+	if is_wading or river_data == null:
+		return
+	if Input.is_action_pressed("move_down"):
+		return   # player is entering the water — don't snap
+
+	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE),
+			0, river_data.width - 1)
+
+	# Determine which bank the angler is on. Near bank is always above the water surface;
+	# anything beyond near_edge_y + one tile is far-bank territory.
+	var near_edge_y := _near_bank_edge_y()
+	if position.y <= near_edge_y + RiverConstants.TILE_SIZE:
+		# Near bank — snap to the bank-water boundary (follows river curves)
+		position.y = lerpf(position.y, near_edge_y, 0.25)
+		return
+
+	# Far bank — snap to bottom_bank_profile row centre.
+	# Also handles TILE_AIR when curved far bank shifts the row beneath the angler.
+	if river_data.bottom_bank_profile.size() > col:
+		var fbr: int = river_data.bottom_bank_profile[col]
+		var fb_y := float(fbr) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+		if absf(position.y - fb_y) < RiverConstants.TILE_SIZE * 6.0:
+			position.y = lerpf(position.y, fb_y, 0.25)
 
 
 func _sync_vibration() -> void:

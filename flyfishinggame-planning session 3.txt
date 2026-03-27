@@ -1,0 +1,67 @@
+Building a Fly Fishing Game, Part 3: Crossing the River
+
+The previous session ended with a to-do list. Insects were still in screen space — they scrolled with the camera instead of floating on the current. The far bank was technically reachable but in practice blocked by deep water. The river had curved banks but the variation was too subtle to notice. This session fixed all of that.
+
+---
+
+Insects in World Space
+
+The bug was embarrassing once I understood it. The insect particles were children of a CanvasLayer — a Godot node type that renders in screen coordinates rather than world coordinates. So when the camera moved, the insects moved with it. They looked like they were drifting on water but they were actually stuck to the screen.
+
+The fix was straightforward: make InsectParticle a plain Node2D child of RiverWorld, give it a positive x velocity (downstream = positive x in this river), and let it wrap within a world-space range centred on the angler.
+
+While I was there I fixed the skitter movement behaviour for adult insects. The old code gave skittering insects a net negative x velocity — they were drifting upstream. Real caddis flies skitter erratically but always end up moving downstream. Changed the x range to randf_range(10.0, 60.0) so every skitter burst is downstream, just varying in speed.
+
+---
+
+Crossing the River
+
+The river generates a U-shaped cross-section with tile types from light blue (surface) to dark blue (deep) to gray (riverbed) to brown (far bank). Dark blue tiles are genuinely deep water — impassable for wading. But my original movement code used a fixed distance cap from the near bank rather than reading the tile types. The result: everything beyond a few tiles deep was blocked, whether it was actually impassable dark blue or perfectly wadable light blue.
+
+The new logic scans tile-by-tile from the first water row downward in the angler's current column. If it hits a dark blue tile, stop at the last row above it. If it hits the riverbed row without ever encountering dark blue, that's a ford — return the far bank centre. This means light blue and mid-blue water (and weed beds and gravel bars) are all passable, because they don't have dark blue in this column.
+
+To make any of this work, I needed to know where the far bank was. I added a `bottom_bank_profile` array — per-column index of the first far-bank tile row. Now both banks are fully described: top_bank_profile tells you where water starts, bottom_bank_profile tells you where it ends. The angler snaps to whichever bank they're standing on.
+
+---
+
+The Ford Problem
+
+Dark blue water only generates when the depth value is above about 0.345. The default noise generates values between 0.20 and 1.0, which means everything is either borderline or clearly too deep to cross. Without explicit fords, no section is crossable.
+
+I inject fords by overwriting the depth profile with very low values (0.06) across a 60-tile band, using a cosine taper so the transition is smooth rather than a cliff edge. At depth 0.06, the threshold formula guarantees no dark blue tiles are generated — the ford is always crossable. With a spacing of 320 tiles across a 1440-tile section, you get four or five crossing points per section.
+
+This is one of those cases where the math has to be worked out before writing code. The question isn't "does the ford look right" — it's "is the ford provably crossable?" The depth threshold that generates TILE_DEEP is `lerpf(-0.2, 0.38, depth_val)`. At depth_val=0.06, that evaluates to -0.168. The tile-assignment check is `if centre_d < (deep_thr + noise)`. centre_d is always between 0 and 1, and the threshold is -0.168 plus a small noise term that stays well below 0. So the condition is never true. The ford is mathematically guaranteed to have no dark blue tiles.
+
+---
+
+Curved Banks That Actually Curve
+
+The previous session added bank noise but at a frequency that gave only about 64 pixels of variation. Across a section that's a thousand tiles wide, that's barely noticeable. I reduced the near-bank noise frequency from 0.003 to 0.0018, stretching the wavelength to about 555 tiles. Now one full curve spans over a screen width — you walk into a section and can see it narrow ahead of you, then open back up.
+
+The far bank gets its own independent noise with a different seed, so the two banks don't mirror each other. Sometimes both banks squeeze inward creating a narrow fast chute. Sometimes only the far bank bulges out, creating a wider pool on that side. The variation creates genuine decisions about where to enter the water.
+
+One problem this introduced: with the near bank varying from 3 to 7 tiles tall and the far bank from 3 to 5 tiles, certain columns were running out of room. The total bank heights could leave only one or two tiles for the actual water column, or in extreme cases, overflow the river height entirely. Fixed with a per-column cap on water column depth: `mini(max_depth, height - top_bank_h - bottom_bank_h - 1)`. The river depth adapts to however much space the banks leave for it.
+
+---
+
+Wading Depth That Reflects Actual Depth
+
+The depth indicator — the blue bar on the left side of the angler sprite — was using a fixed denominator of MAX_WADE_DEPTH * TILE_SIZE (320 pixels). A ford has only 4 water tiles (128 pixels). At the far bank of a ford your reading would be 128/320 = 0.40 at best, even though you're as deep as that column gets. A deep pool blocked at the first dark blue row might show 0.25 max.
+
+The fix: use the actual water column height for the current column as the denominator. That's (bottom_bank_profile[col] - top_bank_profile[col]) * TILE_SIZE. In a ford that's 128 pixels. At the far bank: 128/128 = 1.0 — the bar fills. In a deep pool you can only reach about 40% of the way down before hitting impassable water, so the bar shows ~0.4. A reading of 0.8 means "very deep for this column", regardless of whether you're in a shallow ford or a deep pool.
+
+---
+
+What I Learned
+
+The hardest part of this session wasn't any single system — it was the number of interdependencies. Fixing far-bank access required bottom_bank_profile, which required changes to the generator, which broke the depth indicator, which required another pass at the denominator. And the ford guarantee needed careful math before touching any code.
+
+The lesson I keep coming back to: tile-based state is simpler than position-based state. Every time I've tried to use Y position thresholds — "below 160px means wading", "below 240px means deep" — I've created bugs when the river geometry changes. Reading the tile under the angler is always correct because the tile is the ground truth. The river generator puts the right tiles in the right places; the movement code doesn't need to know the geometry, just the tile type.
+
+---
+
+Next Session
+
+The wading depth indicator was the last change and hasn't been tested in a full run yet. That's first.
+
+After that: drag visualization during the drift phase. Right now DriftController tracks drag_factor (0 = natural drift, 1 = fully dragging) but there's no visual feedback — the angler has no idea if a mend helped. I want to show line sag in the cast arc HUD proportional to drag. And eventually sound.

@@ -21,10 +21,12 @@ const C_TIGHT := Color(0.20, 0.90, 0.35)
 const C_SLOPPY:= Color(0.95, 0.82, 0.15)
 const C_BAD   := Color(0.90, 0.22, 0.18)
 const C_FLY   := Color(0.85, 0.38, 0.10)
-const C_CUE   := Color(1.00, 0.95, 0.30)  # timing cue highlight
+const C_CUE    := Color(1.00, 0.95, 0.30)  # timing cue highlight
+const C_TARGET := Color(0.70, 0.95, 0.40)  # yellow-green target notch
 
 var casting: CastingController = null
 var drift:   DriftController   = null
+var target_line_length: float  = -1.0   # tiles; -1 = no target
 
 
 func _ready() -> void:
@@ -57,24 +59,36 @@ func _draw() -> void:
 
 		CastingController.State.PRESENTATION:
 			_draw_rod(ANGLE_PRESENT, 0.0)
-			var tip := _rod_tip(ANGLE_PRESENT)
-			draw_line(tip, tip + Vector2(-_line_len(), 0.0), C_LINE, 1.5)
+			var tip     := _rod_tip(ANGLE_PRESENT)
+			var far_end := tip + Vector2(-_line_len(), 0.0)
+			draw_line(tip, far_end, C_LINE, 1.5)
+			draw_circle(far_end, 4.0, C_FLY)
 			_draw_status(font, "Presenting…")
 
 		CastingController.State.RESULT:
-			var qcol    := _quality_color()
-			var qloop_h: float = ([10.0, 22.0, 38.0] as Array)[casting.cast_quality]
+			# The loop shows how well the timing was:
+			#   TIGHT  — tiny loop, fly almost at loop apex (upper and lower legs nearly parallel)
+			#   SLOPPY — medium loop, fly a quarter-line back from the loop
+			#   BAD    — wide loop, fly halfway back toward the rod
+			var qcol:   Color = _quality_color()
+			var qloop_h: float = ([6.0, 24.0, 44.0] as Array)[casting.cast_quality]
 			_draw_rod(ANGLE_PRESENT, 0.0)
-			var tip      := _rod_tip(ANGLE_PRESENT)
-			var len      := _line_len()
-			var loop_r   := qloop_h * 0.5
-			var top_end  := tip + Vector2(-len + loop_r, 0.0)
-			var bot_end  := top_end + Vector2(0.0, qloop_h)
-			var lc       := top_end + Vector2(0.0, loop_r)
+			var tip     := _rod_tip(ANGLE_PRESENT)
+			var len     := _line_len()
+			var loop_r  := qloop_h * 0.5
+			# Upper leg: rod tip → loop (going left, the forward-cast direction)
+			var top_end := tip + Vector2(-len + loop_r, 0.0)
+			var bot_end := top_end + Vector2(0.0, qloop_h)
+			var lc      := top_end + Vector2(0.0, loop_r)
 			draw_line(tip, top_end, qcol, 2.0)
-			draw_line(tip + Vector2(0.0, qloop_h), bot_end, qcol, 2.0)
 			draw_arc(lc, loop_r, PI * 0.5, PI * 1.5, 14, qcol, 2.2)
-			draw_circle(lc, 5.0, qcol)
+			# Lower leg: loop bottom → fly (going right, back toward angler)
+			# Length depends on timing quality — tight cast = fly right at loop; bad = fly way back
+			var lower_fracs: Array = [0.04, 0.28, 0.56]
+			var lower_len: float = (lower_fracs as Array)[casting.cast_quality] * len
+			var fly_pos := bot_end + Vector2(lower_len, 0.0)
+			draw_line(bot_end, fly_pos, qcol, 2.0)
+			draw_circle(fly_pos, 4.0, C_FLY)
 			var qlabels: Array = ["TIGHT LOOP", "SLOPPY LOOP", "BAD CAST"]
 			_draw_status(font, qlabels[casting.cast_quality] as String, qcol)
 
@@ -91,60 +105,91 @@ func _draw() -> void:
 func _draw_false_casting(font: Font) -> void:
 	var rod_angle := ANGLE_BACK if casting._stroke_dir == -1 else ANGLE_FORWARD
 	var load      := casting._load_time()
-	var progress  := clampf(casting._stroke_timer / load, 0.0, 1.0)
+	# raw_t is unclipped so we can detect overshoot (player waited too long)
+	var raw_t:    float = casting._stroke_timer / load
+	var progress: float = clampf(raw_t, 0.0, 1.0)
 
 	# Rod tip trails behind grip — bends away from cast direction (tip lags due to line inertia)
-	# _stroke_dir==-1 (backcast, rod tip upper-left): tip trails RIGHT → perp bows body right → negative flex
-	# _stroke_dir==1  (fwd cast, rod tip upper-right): tip trails LEFT → perp bows body left → positive flex
 	var flex := clampf((progress - 0.70) / 0.30, 0.0, 1.0)
 	_draw_rod(rod_angle, flex * (-1 if casting._stroke_dir == -1 else 1))
 
-	var tip := _rod_tip(rod_angle)
-
-	# _stroke_dir==-1 → backcast, line unrolls RIGHT (+x)
-	# _stroke_dir==1  → forward cast, line unrolls LEFT (-x)
+	var tip      := _rod_tip(rod_angle)
 	var line_dir := Vector2(1.0, 0.0) if casting._stroke_dir == -1 else Vector2(-1.0, 0.0)
 	var max_len  := _line_len()
-	var cur_len  := max_len * progress
 
-	# Loop geometry: two legs (rod-leg above, fly-leg below) joined by a semicircle at the leading edge.
-	# Physics: loop tightens as it travels outward (wide near rod = energy still forming,
-	# narrow at full extension = tight efficient loop).  Legs droop slightly under gravity.
-	var loop_h := lerpf(28.0, 12.0, progress)  # narrows from 28→12 px as line extends
-	var loop_r  := loop_h * 0.5
+	# past_grace: seconds elapsed after the 0.25s grace period following full extension.
+	# During the grace window the loop stays tight — 0.25s of "line straight" hold time.
+	var past_grace: float = maxf(0.0, casting._stroke_timer - load - 0.25)
 
-	var line_col := C_LINE if progress < 0.88 else C_CUE
-	var loop_col := C_LINE.lerp(C_CUE, maxf(0.0, (progress - 0.75) / 0.25))
-
-	if cur_len < loop_r * 2.0:
-		draw_circle(tip, 3.0, C_LINE)
+	# Loop height: narrows to 4 px at full extension, stays tight during grace, then widens.
+	var loop_h: float
+	if past_grace <= 0.0:
+		loop_h = lerpf(40.0, 4.0, progress)
 	else:
-		# Slight gravitational sag — line droops under its own weight over long distances
-		var sag := cur_len * 0.014
+		loop_h = lerpf(4.0, 40.0, clampf(past_grace / 0.5, 0.0, 1.0))
+	var loop_r := loop_h * 0.5
 
-		# Leading-edge endpoints: where the semicircle connects to each leg
-		var top_end     := tip + line_dir * (cur_len - loop_r) + Vector2(0.0, sag)
-		var bot_end     := top_end + Vector2(0.0, loop_h)
-		var loop_center := top_end + Vector2(0.0, loop_r)
+	# Color: neutral → green approaching window → hold green during grace → red after
+	var line_col: Color
+	var loop_col: Color
+	if past_grace > 0.0:
+		var t: float = clampf(past_grace / 0.30, 0.0, 1.0)
+		line_col = C_TIGHT.lerp(C_BAD, t)
+	elif raw_t < 0.78:
+		line_col = C_LINE
+	else:
+		var t: float = clampf((raw_t - 0.78) / 0.27, 0.0, 1.0)
+		line_col = C_LINE.lerp(C_TIGHT, t)
+	loop_col = line_col
 
-		# Rod-leg — runs from rod tip toward the loop (the freshly moving strand)
-		draw_line(tip, top_end, line_col, 1.8)
-		# Fly-leg — runs parallel below (the strand being pulled in from the previous stroke)
-		draw_line(tip + Vector2(0.0, loop_h), bot_end, line_col, 1.8)
+	# Line length is constant throughout the stroke.
+	# The loop divides it into two parallel legs:
+	#   upper leg: rod tip → loop leading edge    (grows as loop advances)
+	#   lower leg: loop trailing edge → fly       (shrinks as loop advances)
+	# When upper_len == max_len the lower_len is 0: line is straight, fly meets the loop.
+	var upper_len: float = progress * max_len
+	var lower_len: float = (1.0 - progress) * max_len
 
-		# Semicircle loop at the leading edge — opens toward the rod (trailing side)
-		# Backcast (right): arc from top (-PI/2) to bottom (PI/2) CCW = curves rightward, opens left
-		# Fwd cast (left): arc from bottom (PI/2) to top (3PI/2) CCW = curves leftward, opens right
+	if upper_len < loop_r * 2.0:
+		# Loop hasn't formed yet — show fly at starting position
+		var fly_start := tip - line_dir * lower_len
+		draw_circle(fly_start, 4.0, C_FLY)
+	else:
+		# Upper leg sag: gentle droop proportional to length; extra sag once grace expires
+		var upper_sag: float = upper_len * 0.010 + past_grace * upper_len * 0.04
+		# Lower leg sag: fly-leg droops more (less taut, older part of line)
+		var lower_sag: float = lower_len * 0.022 * (1.0 - progress * 0.6) + past_grace * lower_len * 0.06
+
+		# Loop position at leading edge of cast
+		var loop_top := tip + line_dir * upper_len + Vector2(0.0, upper_sag)
+		var loop_bot := loop_top + Vector2(0.0, loop_h)
+		var loop_ctr := loop_top + Vector2(0.0, loop_r)
+
+		# Fly trails behind the loop, going opposite to cast direction
+		var fly_pos := loop_bot - line_dir * lower_len + Vector2(0.0, lower_sag)
+
+		# Upper leg: rod tip → loop top (cast direction)
+		draw_line(tip, loop_top, line_col, 1.8)
+		# Lower leg: loop bottom → fly (back toward and past rod, opposite direction)
+		draw_line(loop_bot, fly_pos, line_col, 1.8)
+
+		# Semicircle at the leading edge — the loop turning point
 		if casting._stroke_dir == -1:
-			draw_arc(loop_center, loop_r, -PI * 0.5, PI * 0.5, 14, loop_col, 2.2)
+			draw_arc(loop_ctr, loop_r, -PI * 0.5, PI * 0.5, 14, loop_col, 2.2)
 		else:
-			draw_arc(loop_center, loop_r, PI * 0.5, PI * 1.5, 14, loop_col, 2.2)
+			draw_arc(loop_ctr, loop_r, PI * 0.5, PI * 1.5, 14, loop_col, 2.2)
 
-	# Timing cue — bright dot at full extension signals direction-change window
-	if progress >= 0.88:
-		var cue_pt := tip + line_dir * max_len + Vector2(0.0, loop_r)
-		draw_circle(cue_pt, 7.0, Color(C_CUE.r, C_CUE.g, C_CUE.b, 0.82))
-		_draw_status(font, "← change direction →", C_CUE)
+		# Fly at the trailing end of the lower leg
+		draw_circle(fly_pos, 4.0, C_FLY)
+
+	# Status and timing cue
+	if raw_t >= 0.85 and past_grace <= 0.0:
+		# Window: line straight, grace period still active — show green cue
+		var cue_pt := tip + line_dir * max_len + Vector2(0.0, 4.0)
+		draw_circle(cue_pt, 7.0, Color(C_TIGHT.r, C_TIGHT.g, C_TIGHT.b, 0.85))
+		_draw_status(font, "← change direction →", C_TIGHT)
+	elif past_grace > 0.0:
+		_draw_status(font, "← too late — wide loop →", C_BAD)
 	else:
 		_draw_status(font, "↓/↑: rhythm   SPACE: release  [%d/%d]" % [
 			casting._false_cast_count, CastingController.MIN_FALSE_CASTS
@@ -191,9 +236,9 @@ func _draw_rod(angle_deg: float, flex: float) -> void:
 	var tip     := rod_dir * ROD_LEN
 	var butt    := -rod_dir   # direction from grip toward reel end
 
-	# ── Forearm — connects grip (origin) to elbow (fixed body position) ──
-	# Elbow sits to the right/downstream of the grip, representing the casting arm
-	var elbow := Vector2(44.0, 24.0)
+	# ── Forearm — elbow tracks the butt (opposite end from tip) so the arm sweeps with the rod ──
+	# Gravity bias (+y) keeps the elbow from floating unrealistically high on steep backcast angles
+	var elbow := butt * 44.0 + Vector2(0.0, 10.0)
 	draw_line(Vector2.ZERO, elbow, Color(0.60, 0.48, 0.36), 5.0, true)
 
 	# ── Cork grip — slightly wider and lighter than the blank ──
@@ -263,12 +308,34 @@ func _draw_status(font: Font, text: String, col: Color = Color(0.68, 0.68, 0.68)
 func _draw_bar() -> void:
 	if casting == null:
 		return
-	const BX    := 32.0
-	const BAR_H := 50.0
-	var fill := (casting.line_length - CastingController.LINE_MIN) / \
-		(CastingController.LINE_MAX - CastingController.LINE_MIN)
-	draw_line(Vector2(BX, 4.0),  Vector2(BX, -BAR_H),         Color(0.22, 0.22, 0.22), 5.0)
-	draw_line(Vector2(BX, 4.0),  Vector2(BX, -BAR_H * fill),  Color(0.55, 0.80, 1.00), 5.0)
+	const BX:    float = 32.0
+	const BAR_H: float = 50.0
 	var font := ThemeDB.fallback_font
+
+	var fill := (casting.line_length - CastingController.LINE_MIN) / \
+			(CastingController.LINE_MAX - CastingController.LINE_MIN)
+
+	# Background track
+	draw_line(Vector2(BX, 4.0), Vector2(BX, -BAR_H), Color(0.22, 0.22, 0.22), 5.0)
+
+	# Fill — color shifts toward target color when line is close to required length
+	var bar_col := Color(0.55, 0.80, 1.00)
+	if target_line_length > 0.0:
+		var err := absf(casting.line_length - target_line_length) / \
+				(CastingController.LINE_MAX - CastingController.LINE_MIN)
+		bar_col = bar_col.lerp(C_TARGET, clampf(1.0 - err * 6.0, 0.0, 1.0))
+
+	draw_line(Vector2(BX, 4.0), Vector2(BX, -BAR_H * fill), bar_col, 5.0)
+
+	# Target notch — horizontal tick showing required line length
+	if target_line_length > 0.0:
+		var t_frac := (target_line_length - CastingController.LINE_MIN) / \
+				(CastingController.LINE_MAX - CastingController.LINE_MIN)
+		var notch_y := -BAR_H * t_frac
+		draw_line(Vector2(BX - 5.0, notch_y), Vector2(BX + 5.0, notch_y), C_TARGET, 2.0)
+		# Small label
+		draw_string(font, Vector2(BX + 7.0, notch_y + 4.0), "%.0f" % target_line_length,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 9, C_TARGET)
+
 	draw_string(font, Vector2(BX + 4.0, -BAR_H + 4.0), "%.0f" % casting.line_length,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.65, 0.75, 0.88))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.65, 0.75, 0.88))

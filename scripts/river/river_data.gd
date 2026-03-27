@@ -8,6 +8,14 @@ var height: int = RiverConstants.RIVER_H_TILES
 # depth_profile[x] = 0.0 (shallow/riffle) .. 1.0 (deep/pool)
 var depth_profile: Array = []
 
+# top_bank_profile[x] = row index where water begins (>= BANK_H_TILES).
+# Varies per column via low-freq noise to produce curved/undulating near bank.
+var top_bank_profile: Array = []
+
+# bottom_bank_profile[x] = row index where the far bank begins (riverbed_row + 1).
+# Varies per column via independent noise to produce a curved far bank.
+var bottom_bank_profile: Array = []
+
 # current_map[x][y] = 0.0 (still/eddy) .. 1.0 (fast)
 var current_map: Array = []
 

@@ -1,0 +1,81 @@
+Building a Fly Fishing Game, Part 2: Physics, Rivers, and Targeting
+
+Last time I had a fully playable prototype — you could walk to the river, cast, let the fly drift, and hook a fish. The bones were there but it looked like a tech demo. This session was about closing the gap between "it works" and "it feels right."
+
+---
+
+Getting the Cast Loop Right
+
+Fly casting has this beautiful physics thing that I kept getting wrong in the code. When you throw a fly line, the loop is formed by the line doubling back on itself — like a candy cane that travels forward. The rod tip connects to the upper leg of the loop. The fly hangs off the lower leg, trailing behind.
+
+I kept drawing it as a V shape converging at the rod tip, which is completely wrong. In that model the fly would be at the front of the cast, which is where you're trying to get it, but it's backwards from how the line actually works. The fly starts behind the angler and travels forward only as the loop rolls out.
+
+So the correct geometry is:
+- Upper leg: rod tip → front of loop (travels forward with cast)
+- Lower leg: back of loop → fly (travels opposite direction, fly at far end)
+
+As the cast unfolds, the upper leg gets longer and the lower leg gets shorter. When they're equal length the line is fully extended — that's the critical moment.
+
+The timing window mechanic flows naturally from this: if you change direction (start the forward stroke) exactly when the line is straight, you maintain a tight loop. Too early and the loop is wide and floppy. Too late and the line has already sagged and you're casting a mess. I visualize this as loop height — narrow at the ideal moment, wide on either side — with a 0.25-second grace period before it starts going wrong.
+
+I also fixed the rod arm. The elbow was at a fixed point on screen, which looked absurd when the rod swept back to the 10 o'clock position for a backcast. Now the elbow tracks the butt-end of the rod, so the whole arm sweeps naturally with the stroke.
+
+---
+
+A River That Behaves Like a River
+
+The original river was a rectangle with flat banks and uniform current. It worked for testing but there was no reason to read it or navigate it strategically.
+
+Three changes made it feel real:
+
+**Curved banks.** I added a low-frequency noise function to vary bank height per column. The near bank is 3 to 5 tiles tall, the far bank mirrors it. The angler's position snaps smoothly to the bank surface as they walk, so crossing a curved bank doesn't feel like stepping off a ledge.
+
+**Narrower means faster.** This one took me a while to model correctly. My first instinct was to link current speed to depth — deeper water, faster current — but that's backwards. In a real river, the same volume of water has to pass through every cross-section per unit time. Narrow the channel and the water has to move faster to keep up. Wide, flat pools are calm. Canyon-like narrows are turbulent and difficult to wade. This is now encoded directly: `base_speed = lerpf(0.95, 0.20, width_frac)`.
+
+**Current slows wading.** Fast water physically resists movement. The horizontal wading speed is now `WADE_SPEED_H * max(0.25, 1.0 - current * 0.80)`. In the fastest current you're moving at maybe 18 pixels per second. In a slow eddy you're walking normally. There's a floor of 0.25 so you can always make progress, just slowly.
+
+These three together create something interesting: you can see the current arrows (more on those below), identify the fast channel, and decide whether to wade across it, find a ford, or fish from the near bank.
+
+---
+
+Both Banks
+
+I hadn't thought through what happens when the angler reaches the far bank. The original code used Y position to decide if you were wading — below a threshold meant in water. But that threshold was the near bank edge, so the far bank was just... unreachable deep water.
+
+The fix was to make wading detection tile-based. Look at whatever tile the angler is standing on. `TILE_BANK` means dry land, whether it's the near shore or the far shore. Anything else (surface water, mid-depth, riverbed, weed) means wading. This means you can wade across a ford, step onto the far bank, and fish the opposite angle. That's a legitimate fly fishing strategy — sometimes the only way to get a good upstream presentation is to cross and fish from the other side.
+
+---
+
+Current Arrows
+
+Players need to read the river. I added a sparse grid of flow arrows — every fourth column and third row of water tiles — drawn in world space. Each arrow is a horizontal line with an arrowhead, scaled in length and opacity by current speed. Short and faint in slow water, long and bright in fast water.
+
+This solves two problems: it makes the narrower=faster rule visible (you can actually see the arrows grow longer as the channel narrows), and it helps with cast targeting since you can see where the fly will drift after it lands.
+
+---
+
+Targeting
+
+The single biggest missing mechanic was the ability to aim a cast. Without it there was no reason to read the river, no reason to position yourself carefully, no reason to think about line length. You just cast and hoped.
+
+Left-click on any water tile now sets a target. A crosshair appears with a ring, a downstream drift arrow, and a distance label. The HUD line-length bar gets a notch at the required line length — that's your goal for the cast.
+
+When the cast lands, the actual landing position scatters based on two factors: cast quality (tight loop = less scatter) and how far your line length was from the required amount. If you need 25 feet but cast 15, the fly lands noticeably short. If you've dialed in the length and throw a clean loop, the fly lands within a tile or two of the crosshair.
+
+Right-click clears the target and returns to free casting.
+
+---
+
+What I Learned
+
+The hardest part of this session wasn't code — it was getting the casting physics right conceptually before writing any code. I went through three diagrams of the loop geometry before I had a model I was confident in. Once the mental model was correct, the implementation was straightforward.
+
+The narrower=faster current model is one of those things that sounds obvious in retrospect but requires you to actually think about the physics instead of making an intuitive guess. My first guess (deeper = faster) was completely wrong.
+
+---
+
+Next Session
+
+The insects floating on the surface are still in screen space — they scroll with the camera instead of drifting with the river. That's the most visually obvious remaining bug. After that I want to start on drag visualization during the drift phase, and eventually sound effects.
+
+The game is getting close to the point where I'd want a real person to play it for the first time. A few more sessions of this kind of polish and it should be there.

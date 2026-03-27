@@ -37,6 +37,12 @@ func _init_arrays(data: RiverData) -> void:
 	data.depth_profile.resize(w)
 	data.depth_profile.fill(0.5)
 
+	data.top_bank_profile.resize(w)
+	data.top_bank_profile.fill(RiverConstants.BANK_H_TILES)
+
+	data.bottom_bank_profile.resize(w)
+	data.bottom_bank_profile.fill(RiverConstants.BANK_H_TILES + RiverConstants.MIN_DEPTH_TILES + 1)
+
 	data.current_map.resize(w)
 	data.tile_map.resize(w)
 	data.hold_scores.resize(w)
@@ -79,15 +85,24 @@ func _generate_depth_profile(data: RiverData) -> void:
 func _inject_ford_sections(data: RiverData) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(data.seed + 22222)
-	const FORD_SPACING := 380   # average tiles between ford centres
-	const FORD_WIDTH   := 50    # tiles across the ford transition
-	const FORD_DEPTH   := 0.08  # depth_val at ford centre (very shallow)
+	const FORD_SPACING := 320   # average tiles between ford centres (reduced for more crossings)
+	const FORD_WIDTH   := 60    # tiles across the ford transition (wider = easier to find)
+	const FORD_DEPTH   := 0.06  # depth_val at ford centre (very shallow — no TILE_DEEP guaranteed)
 
-	var x := rng.randi_range(80, FORD_SPACING)
-	while x < data.width - 80:
+	var ford_xs: Array = []
+	var x := rng.randi_range(60, FORD_SPACING)
+	while x < data.width - 60:
+		ford_xs.append(x)
+		x += FORD_SPACING + rng.randi_range(-60, 60)
+
+	# Guarantee at least one ford per section, near the midpoint if none were placed.
+	if ford_xs.is_empty():
+		ford_xs.append(data.width / 2)
+
+	for fx_centre: int in ford_xs:
 		var hw := FORD_WIDTH / 2
 		for dx in range(-hw, hw + 1):
-			var fx := x + dx
+			var fx := fx_centre + dx
 			if fx < 0 or fx >= data.width:
 				continue
 			# Smooth cosine taper from normal depth at edges to FORD_DEPTH at centre
@@ -95,7 +110,6 @@ func _inject_ford_sections(data: RiverData) -> void:
 			var taper := (1.0 - cos(t * PI)) * 0.5   # smooth 0→1
 			var current: float = data.depth_profile[fx]
 			data.depth_profile[fx] = lerpf(FORD_DEPTH, current, taper)
-		x += FORD_SPACING + rng.randi_range(-60, 60)
 
 
 # ---------------------------------------------------------------------------
@@ -103,15 +117,21 @@ func _inject_ford_sections(data: RiverData) -> void:
 # ---------------------------------------------------------------------------
 
 func _build_tile_map(data: RiverData) -> void:
-	var top_bank   := RiverConstants.BANK_H_TILES          # 3
-	var bot_bank_h := RiverConstants.BOTTOM_BANK_H_TILES   # 3
 	var min_depth  := RiverConstants.MIN_DEPTH_TILES       # 4
 	var max_depth  := RiverConstants.MAX_DEPTH_TILES       # 22
 
-	# Water always spans from just below top bank to just above bottom bank.
-	# depth_profile controls the tier distribution (all-surface ford vs deep pool).
-	var water_top  := top_bank           # y=3, first water row
-	var water_span := max_depth          # maximum rows of water
+	# Low-frequency noise: near bank undulates (river curves toward/away from player).
+	# top_bank_h ranges from BANK_H_TILES to BANK_H_TILES+4 (3-7 tiles = 128px variation).
+	var bank_noise := FastNoiseLite.new()
+	bank_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	bank_noise.seed       = data.seed + 77777
+	bank_noise.frequency  = 0.0018   # ~555-tile wavelength — broad river meander curves
+
+	# Independent noise for the far (bottom) bank — different phase so banks curve independently.
+	var bot_bank_noise := FastNoiseLite.new()
+	bot_bank_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	bot_bank_noise.seed       = data.seed + 33333
+	bot_bank_noise.frequency  = 0.0035
 
 	# 2D noise for lateral variation in tier boundaries
 	var tier_noise := FastNoiseLite.new()
@@ -121,34 +141,46 @@ func _build_tile_map(data: RiverData) -> void:
 
 	for x in data.width:
 		var depth_val: float = data.depth_profile[x]
-		# Actual water column height for this column
-		var water_cols := min_depth + int(depth_val * float(max_depth - min_depth))
-		var riverbed_y := water_top + water_cols  # row index of riverbed tile
+
+		# Near-bank height varies per column: 3-7 tiles (maps noise -1..1 linearly to 0..4 offset)
+		var bn: float = bank_noise.get_noise_1d(float(x))
+		var top_bank_h: int = clampi(RiverConstants.BANK_H_TILES + int((bn + 1.0) * 2.0),
+				RiverConstants.BANK_H_TILES, RiverConstants.BANK_H_TILES + 4)
+		data.top_bank_profile[x] = top_bank_h
+
+		# Far-bank height varies independently: 3-5 tiles
+		var bbn: float = bot_bank_noise.get_noise_1d(float(x))
+		var bot_bank_h: int = clampi(RiverConstants.BOTTOM_BANK_H_TILES + int(round(bbn * 1.5)),
+				RiverConstants.BOTTOM_BANK_H_TILES, RiverConstants.BOTTOM_BANK_H_TILES + 2)
+
+		# Actual water column height — capped per column so riverbed + far bank fit in RIVER_H_TILES.
+		var cap_depth := mini(max_depth, data.height - top_bank_h - bot_bank_h - 1)
+		var water_cols := min_depth + int(depth_val * float(cap_depth - min_depth))
+		var riverbed_row := top_bank_h + water_cols  # row index of riverbed tile
+		data.bottom_bank_profile[x] = riverbed_row + 1  # first row of far bank
 
 		for y in data.height:
-			if y < top_bank:
+			if y < top_bank_h:
 				data.tile_map[x][y] = RiverConstants.TILE_BANK
-			elif y < water_top:
-				data.tile_map[x][y] = RiverConstants.TILE_SURFACE
-			elif y < riverbed_y:
+			elif y < riverbed_row:
 				# U-shaped depth: deepest in the centre of the water column.
 				# frac=0 at top edge, frac=1 at bottom edge; centre = 0.5
-				var frac      := float(y - water_top) / float(water_cols)
-				var centre_d  := abs(frac - 0.5) * 2.0   # 0 = centre, 1 = edge
-				var tn        := tier_noise.get_noise_2d(float(x), float(y)) * 0.10
+				var frac:     float = float(y - top_bank_h) / float(water_cols)
+				var centre_d: float = absf(frac - 0.5) * 2.0   # 0 = centre, 1 = edge
+				var tn:       float = tier_noise.get_noise_2d(float(x), float(y)) * 0.10
 				# Thresholds shrink as depth_val drops → ford = all SURFACE
-				var deep_thr  := lerpf(-0.2, 0.38, depth_val)
-				var mid_thr   := lerpf(0.25, 0.70, depth_val)
+				var deep_thr: float = lerpf(-0.2, 0.38, depth_val)
+				var mid_thr:  float = lerpf(0.25, 0.70, depth_val)
 				if centre_d < (deep_thr + tn):
 					data.tile_map[x][y] = RiverConstants.TILE_DEEP
 				elif centre_d < (mid_thr + tn):
 					data.tile_map[x][y] = RiverConstants.TILE_MID_DEPTH
 				else:
 					data.tile_map[x][y] = RiverConstants.TILE_SURFACE
-			elif y == riverbed_y:
+			elif y == riverbed_row:
 				data.tile_map[x][y] = RiverConstants.TILE_RIVERBED
-			elif y < riverbed_y + bot_bank_h + 1:
-				# Far (bottom) bank — appears right after the riverbed
+			elif y < riverbed_row + bot_bank_h + 1:
+				# Far (bottom) bank — height varies per column for curved appearance
 				data.tile_map[x][y] = RiverConstants.TILE_BANK
 			# y beyond that stays TILE_AIR
 
@@ -160,8 +192,14 @@ func _build_tile_map(data: RiverData) -> void:
 func _generate_current_map(data: RiverData) -> void:
 	for x in data.width:
 		var depth_val: float = data.depth_profile[x]
-		# Shallow riffles run fast (0.85-1.0), deep pools slow (0.25-0.55)
-		var base_speed := lerpf(0.95, 0.25, depth_val)
+		# Narrower river (fewer water_cols) = faster current; wider/deeper = slower.
+		# water_cols is linear in depth_val so depth_val directly encodes width fraction.
+		var min_d := RiverConstants.MIN_DEPTH_TILES
+		var max_d := RiverConstants.MAX_DEPTH_TILES
+		var water_cols: int = min_d + int(depth_val * float(max_d - min_d))
+		var width_frac: float = float(water_cols - min_d) / float(max_d - min_d)
+		# Narrow/shallow (width_frac=0): 0.95 m/s; wide/deep (width_frac=1): 0.20 m/s
+		var base_speed: float = lerpf(0.95, 0.20, width_frac)
 
 		for y in data.height:
 			match data.tile_map[x][y]:
@@ -240,7 +278,7 @@ func _valid_placement(data: RiverData, tile_type: int, x: int, y: int) -> bool:
 		RiverConstants.TILE_BOULDER:
 			return tile == RiverConstants.TILE_MID_DEPTH or tile == RiverConstants.TILE_DEEP
 		RiverConstants.TILE_UNDERCUT_BANK:
-			return y == RiverConstants.BANK_H_TILES
+			return y == data.top_bank_profile[x]
 		RiverConstants.TILE_GRAVEL_BAR:
 			return tile == RiverConstants.TILE_SURFACE or \
 				(tile == RiverConstants.TILE_MID_DEPTH and (data.depth_profile[x] as float) < 0.35)

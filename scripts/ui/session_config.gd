@@ -1,6 +1,8 @@
 class_name SessionConfig
 extends Node2D
 
+const DifficultyConfig = preload("res://resources/difficulty_config.gd")
+
 ## Session configuration screen — shown at startup before entering RiverWorld.
 ## Tab to cycle fields, ←/→ to change value, number keys to type seed, Enter to start.
 

@@ -1,0 +1,127 @@
+Fly Fishing Game — Implementation Session 3 Transcript
+Date: 2026-03-27
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+River physics, far-bank access, wading depth model, and insect world-space fix.
+
+---
+
+DECISIONS LOG
+
+[1] INSECTS MOVED TO WORLD SPACE
+Problem: InsectParticle nodes were children of InsectLayer (CanvasLayer), putting them in screen coordinates. They scrolled with the camera instead of drifting with the river.
+Decision: Spawn InsectParticles as direct children of RiverWorld (Node2D), set z_index=5. Downstream velocity = positive x: randf_range(40.0, 90.0) px/s. Wrap range is world-space x centred on angler ±1 viewport width.
+Rationale: World-space children move independently of the camera. The insect-as-entity model (world velocity + world wrap) is physically correct and required for future insect-to-fly-line distance checks.
+Files: river_world.gd (_spawn_insects rewrite, _insect_nodes array), insect_particle.gd (comment fix, net-downstream skitter bias).
+
+[2] FAR BANK ACCESS — TILE-BASED WADING LIMIT
+Problem: _max_wade_y() used a fixed distance cap from the near bank. Any deep section blocked progression before the far bank; weed beds and gravel bars mid-river were also treated as impassable barriers.
+Decision: _max_wade_y() scans tile-by-tile from the first water row downward. Stops at the last passable row above TILE_DEEP (dark blue = impassable). At TILE_RIVERBED without any prior TILE_DEEP = ford/shallow crossing → returns far bank centre y. At TILE_BANK = lands on far bank.
+Rationale: The tile type is the ground truth for passability. TILE_DEEP is dark blue water that is genuinely too deep to wade. Everything else in the water column (surface, mid, riverbed, weed, gravel, rock) is passable. The tile-scan correctly handles every case without special rules.
+Files: angler.gd (_max_wade_y, _near_bank_edge_y).
+
+[3] BOTTOM_BANK_PROFILE — FAR BANK TRACKING
+Problem: No per-column record of where the far bank starts, making it impossible to reliably detect ford vs. deep section or snap the angler to the far bank surface.
+Decision: Added bottom_bank_profile[x] to RiverData. Set in _build_tile_map() as riverbed_row + 1 (first far-bank tile row). Used in _max_wade_y() for ford detection and in _snap_to_bank_surface() for far-bank snap target.
+Rationale: Both near and far bank profiles must be known per-column to correctly handle the curved, variable-width river. Without this the far bank was effectively a mystery — you could enter it but not land cleanly.
+Files: river_data.gd (new field), river_generator.gd (_init_arrays, _build_tile_map), angler.gd (_max_wade_y, _snap_to_bank_surface, _sync_wading_state).
+
+[4] FAR BANK RETURN MOVEMENT
+Problem: After landing on the far bank and pressing UP, the angler was blocked — the existing UP handler was capped by the near bank edge, making it impossible to re-enter the water from the far side.
+Decision: Three-branch UP logic:
+  - Wading: cap movement upward at near bank edge (_near_bank_edge_y).
+  - Far bank (position.y > near_edge_y + 2 tiles): move freely upward to re-enter water.
+  - Near bank: no action needed (snap handles surface tracking).
+Rationale: Re-entering water from the far bank is the reverse of entering from the near bank. The two-tile margin between "near bank edge" and "far bank territory" is enough to distinguish the cases without overlap.
+Files: angler.gd (_handle_movement vertical branch).
+
+[5] HORIZONTAL Y-CLAMP ON MOVEMENT
+Problem: Angler could wade deep in a pool column then walk horizontally into a ford column at that same y, ending up in TILE_AIR below the ford's far bank. _sync_wading_state would see TILE_AIR → is_wading=false, _snap_to_bank_surface threshold was too small to recover.
+Decision: After any horizontal movement, clamp position.y = minf(position.y, _max_wade_y()). This pulls the angler up to the new column's wading limit any time they walk from deep to shallow.
+Rationale: Horizontal movement can change the max wadable y by many tiles if the column changes drastically (deep pool → ford). Clamping after every move prevents drifting into invalid tile states.
+Files: angler.gd (_handle_movement horizontal section).
+
+[6] CURVED BANKS — WIDER VARIATION
+Problem: Near bank noise frequency 0.003 gave only 3–5 tile variation (64px), too subtle to notice while playing. Both banks needed independent curvature with dramatic wide/narrow sections.
+Decision:
+  - Near bank: frequency 0.0018 (~555 tile wavelength), range BANK_H_TILES to BANK_H_TILES+4 (3–7 tiles).
+  - Far bank: independent noise, seed+33333, frequency 0.0035, range 3–5 tiles.
+  - Per-column water cap: mini(max_depth, data.height - top_bank_h - bot_bank_h - 1) prevents riverbed overflow.
+Rationale: Long wavelength (0.0018) creates broad meander-like curves visible over hundreds of tiles. Independent seeds ensure the two banks don't mirror each other. The per-column cap prevents tile overflow in columns where both banks are at maximum height.
+Files: river_generator.gd (_build_tile_map).
+
+[7] FORD INJECTION — GUARANTEED CROSSINGS
+Problem: Default depth profile generates depth_val >= 0.20, which always produces TILE_DEEP (threshold at depth_val ≈ 0.345). Without fords, no section was crossable.
+Decision:
+  - Ford centre depth: FORD_DEPTH = 0.06 (guaranteed below 0.345 → no TILE_DEEP generated).
+  - Ford width: FORD_WIDTH = 60 tiles (wider = easier to find).
+  - Ford spacing: FORD_SPACING = 320 tiles → 4–5 fords per 1440-tile section.
+  - Guaranteed fallback: if ford_xs is empty, one ford at section midpoint.
+  - Profile injection: cosine taper from current depth at edges to FORD_DEPTH at centre.
+Rationale: Fords are the only places players can cross. Without guaranteed fords the game is unplayable for far-bank fishing. The cosine taper avoids cliff-like transitions in the depth profile.
+Files: river_generator.gd (_inject_ford_sections).
+
+[8] UNDERCUT BANK PLACEMENT FIX
+Problem: Undercut bank structures used y == BANK_H_TILES (constant 3) as the valid placement row. With top_bank_h varying 3–7, undercut banks could be placed inside solid bank tiles on wide-bank columns.
+Decision: _valid_placement() check changed to y == data.top_bank_profile[x] — the actual first water row for the column.
+Rationale: The undercut bank tile must sit at the water-bank boundary. That row is per-column, not constant, after the curved bank changes.
+Files: river_generator.gd (_valid_placement).
+
+[9] WADING DEPTH INDICATOR — COLUMN-RELATIVE SCALING
+Problem: The blue depth bar used MAX_WADE_DEPTH * TILE_SIZE (320px) as the denominator. A ford with only 4 water tiles (128px) would show max 0.40 at the far bank. A pool blocked at TILE_DEEP at row 7 (160px total reach from surface) would show 0.25 max. The bar rarely reached meaningful values.
+Decision: denominator = (bottom_bank_profile[col] - top_bank_profile[col]) * TILE_SIZE — the actual water column height for the current column. Result: deep pools max at ~0.4 because TILE_DEEP blocks at 40% depth. Fords reach 1.0 at the far bank. Shallower columns show proportionally lower readings.
+Rationale: The depth reading should reflect position within the wadable range of the current column, not a fixed global scale. A reading of 0.8 means "very deep" for whatever column you're in, not "80% of MAX_WADE_DEPTH".
+Files: angler.gd (_sync_wading_state).
+
+---
+
+BUG FIXES
+
+[B1] Angler stopped mid-river on horizontal movement (TILE_AIR drift)
+  Files: angler.gd
+  Problem: Walking from a deep column to a ford at deep-pool y caused angler to land in TILE_AIR.
+  is_wading=false, far-bank snap threshold (1 tile) was too small to recover from mid-river TILE_AIR.
+  Fix: Clamp position.y after horizontal move. Increased snap threshold to 6 tiles.
+
+[B2] Far bank UP movement blocked
+  Files: angler.gd
+  Problem: UP key was gated on `is_wading`, so standing on the dry far bank and pressing UP did nothing.
+  Fix: Third movement branch for far bank: `elif position.y > ne_y + TILE_SIZE * 2.0: position.y -= WADE_SPEED_V * delta`.
+
+[B3] TILE_DEEP at water_start → angler enters water
+  Files: angler.gd
+  Problem: When TILE_DEEP started immediately at the first water row (very deep near-bank section), _max_wade_y() would return TILE_DEEP row centre, allowing the angler to enter. The tile scan now returns _near_bank_edge_y() if TILE_DEEP is the first row encountered — can't enter at all.
+
+---
+
+TECHNICAL NOTES
+
+- TILE_DEEP threshold: lerpf(-0.2, 0.38, depth_val). At depth_val=0.06 (ford): threshold=-0.168 — centre_d (always 0..1) never negative → no TILE_DEEP generated. Guaranteed crossable fords.
+- Current map still uses MAX_DEPTH_TILES as the scale denominator (slightly imprecise for per-column-capped sections), but functionally correct — ford speed is always high (narrow channel), deep pool speed is always low.
+- _near_bank_edge_y() returns (top_bank_profile[col] - 1) * TILE_SIZE + TILE_SIZE * 0.5 — the last bank tile's centre. This is the snap target and the UP key cap.
+- snap_to_bank_surface far-bank threshold: 6.0 tiles to handle mid-river recovery from TILE_AIR landing.
+
+---
+
+FILES MODIFIED
+- scripts/river/river_data.gd — added bottom_bank_profile
+- scripts/river/river_generator.gd — bottom_bank_profile init/population, curved banks, per-column cap, ford injection, undercut placement fix
+- scripts/angler/angler.gd — tile-based _max_wade_y, _near_bank_edge_y, far bank UP, horizontal y-clamp, column-relative wading depth
+- scripts/river/river_world.gd — world-space insect spawn (_insect_nodes, _spawn_insects rewrite)
+- scripts/flies/insect_particle.gd — downstream skitter bias, world-space comments
+
+---
+
+PENDING / NEXT SESSION
+- Test and validate wading depth indicator shows correct relative readings across deep pools vs. fords
+- Drag visualization during drift (DriftController.drag_factor → line sag in HUD)
+- Sound effects pass (wading splash, cast whoosh, rise splash)
+- Fish AI interaction with cast targets from far bank angle

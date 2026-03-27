@@ -1,0 +1,145 @@
+Fly Fishing Game — Implementation Session 2 Transcript
+Date: 2026-03-26
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+Visual polish, physics correctness, river simulation depth, and cast targeting.
+
+---
+
+DECISIONS LOG
+
+[1] ROD ARM TRACKS ROD ANGLE
+Problem: The forearm/elbow was at a fixed screen position regardless of rod angle, so it looked detached when the rod swept back or forward.
+Decision: Derive the elbow position from the butt-end of the rod: `elbow = butt * 44.0 + Vector2(0.0, 10.0)`.
+Rationale: The butt vector already encodes rod angle; scaling it gives a point along the rod's axis that naturally sweeps with the stroke. No additional tracking needed.
+
+[2] FLY POSITION — APEX VS. TRAILING END
+Problem: The fly dot was drawn at the apex (leading tip) of the loop rather than at the end of the lower leg.
+Decision: Fly is always at the trailing end of the lower leg, behind the loop in the direction opposite to cast travel.
+Rationale: This matches real fly casting physics: the loop is formed by the line doubling back on itself. The upper leg travels from rod tip toward the target; the lower leg trails behind, carrying the fly at its far end. As the cast unfolds, the lower leg shortens until fly meets loop = line fully extended.
+
+[3] CORRECT LOOP GEOMETRY — TWO SEPARATE LEGS
+Problem: Earlier implementation drew the loop as a V converging at the rod tip. This is wrong; in real casting the two legs of the loop are not joined at the rod end.
+Decision: Upper leg = rod tip → loop front. Lower leg = loop back → fly. Neither leg connects to the rod tip on the lower side. Concretely:
+  - `loop_top = tip + line_dir * upper_len + sag`
+  - `loop_bot = loop_top + (0, loop_h)`
+  - `fly_pos  = loop_bot - line_dir * lower_len + lower_sag`
+Rationale: Reference diagram from functional-anatomy-of-fly-fishing confirmed the geometry. The rod tip is connected only to the upper leg; the fly hangs from the lower leg which travels anti-parallel to cast direction.
+
+[4] TIMING WINDOW — TIGHT LOOP WHEN LINE IS STRAIGHT
+Problem: No visual cue for the optimal direction-change moment; all casts looked the same regardless of timing.
+Decision: Loop height forms a valley — narrow (4 px) at full extension (progress=1.0), wide (38 px) at start. After full extension there is a 0.25-second grace window before the loop widens again (sag). Tight = green, widening = neutral, past grace = red.
+Rationale: In real casting, changing direction at full extension creates a tight, efficient loop. Changing too early or too late produces a wide, energy-wasting loop. The 0.25 s grace is measured in real seconds (not normalised time) so cast length doesn't shrink the window.
+Implementation note: `past_grace = maxf(0.0, _stroke_timer - load - 0.25)` in rod_arc_hud.gd.
+
+[5] CURVED BANKS — BOTH NEAR AND FAR
+Problem: River had flat banks; looked unrealistic and limited fishing positions.
+Decision: Generate per-column bank height using `bank_noise` (FastNoiseLite, frequency 0.0035). Near bank: 3–5 tiles tall. Far bank: mirrored variation. `top_bank_profile[x]` stores the first water row per column.
+Rationale: Curved banks make the river feel alive and create strategic wading positions. The low noise frequency ensures smooth curves, not jagged steps.
+
+[6] BOTH-BANK FISHING — TILE-BASED WADING DETECTION
+Problem: Wading was detected by Y position threshold; angler could not walk onto or fish from the far bank.
+Decision: Wading = angler's current tile is NOT TILE_BANK and NOT TILE_AIR. Any TILE_BANK cell (near or far) counts as dry land.
+Rationale: The far bank is semantically the same as the near bank for movement purposes. Tile-based detection handles both naturally without special-casing. Also correctly handles mid-river rocks and gravel bars the angler might stand on.
+
+[7] CURRENT RESISTANCE ON WADING SPEED
+Problem: Wading had a single fixed speed regardless of where in the river the angler was.
+Decision: `WADE_SPEED_H * maxf(0.25, 1.0 - current * 0.80)`. At current=0.95 (fast): ~18 px/s. At current=0.25 (slow): ~48 px/s.
+Rationale: Strong current physically resists wading. The 0.25 floor prevents the angler from being completely stopped; they can always make progress, just slowly. This also gives skill value to positioning — slow-water approaches are faster.
+
+[8] NARROWER RIVER = FASTER CURRENT
+Problem: Current speed was derived from depth profile, which made shallow water slow — opposite of reality.
+Decision: `width_frac = (water_cols - MIN_DEPTH_TILES) / (MAX_DEPTH_TILES - MIN_DEPTH_TILES)`. `base_speed = lerpf(0.95, 0.20, width_frac)`. Narrow → fast. Wide → slow.
+Rationale: Conservation of mass (continuity equation): same volume of water through a narrower cross-section must move faster. This makes canyon-like narrows exciting and dangerous to wade; broad pools are calm.
+
+[9] BANK SNAP FIX — NO SNAP WHILE ENTERING WATER
+Problem: `_snap_to_bank_surface()` ran every frame and snapped angler back to bank Y even when the player was pressing Down to enter the water.
+Decision: Added early return `if Input.is_action_pressed("move_down"): return`. Changed instant set to `lerpf(..., 0.20)` for smooth surface tracking as the angler walks over curved banks.
+Rationale: The snap is needed to keep the angler riding curved bank contours while walking horizontally. But it must not fight vertical input. The lerp prevents jerky snapping on steep bank curves.
+
+[10] FLOW ARROWS — CURRENT DIRECTION INDICATOR
+Problem: No visual cue that current exists or varies across the river.
+Decision: Every 4th column × every 3rd water row, draw a horizontal arrow in world space via `_draw()`. Arrow length and alpha proportional to speed (4–18 px range). Classic arrowhead (two angled lines from tip).
+Rationale: Players need to read the river to decide where to wade and where to cast. Arrows are subtle (low alpha, thin) so they don't clutter the tile view, but clearly encode speed variation. They are world-space so they don't move with the camera.
+
+[11] CAST TARGET SELECTION
+Problem: Casting was aim-free — the fly always landed at a fixed upstream offset. Players couldn't target a fish's feeding lane or structure.
+Decision:
+  - Left-click on any water tile → sets `CastingController.aimed_target` to snapped tile centre.
+  - Right-click → clears target.
+  - `CastTargetOverlay` (Node2D in world space) draws: guide line, landing ring, crosshair, downstream drift arrow, distance label.
+  - `rod_arc_hud.target_line_length` shows a notch on the line-length bar at the required line length.
+  - Quality scatter in `_enter_result()`: base scatter by quality + line-length-error penalty (each tile of error = 0.6 tile scatter).
+Rationale: Cast targeting is the primary skill mechanic — reading the river, choosing where the fly should land relative to the fish's hold, and managing line length. Without targeting, those decisions have no consequence.
+
+[12] CAST TARGET OVERLAY — WORLD SPACE NODE2D
+Decision: `CastTargetOverlay` is a plain `Node2D` child of `RiverWorld`, drawn in world coordinates via `_draw()`. Not a CanvasLayer.
+Rationale: The overlay needs to move with the world (camera scroll). A CanvasLayer stays fixed on screen. The crosshair, ring, drift arrow, and guide line all make more sense as world-anchored visuals.
+
+[13] INSECT LAYER — SCREEN SPACE (KNOWN LIMITATION)
+Issue raised: user noted insects move with the angler rather than with river flow.
+Finding: Insects are spawned in `InsectLayer` (CanvasLayer) at viewport-relative positions with velocity in pixels/second. They drift left at –18 to –6 px/s, which is screen space. They do not convert to world coordinates, so they scroll with the camera.
+Status: Not fixed this session; noted for future work. The fix would involve moving InsectParticle to world space and giving each particle a world velocity matching local tile current.
+
+[14] CAST TARGET OVERLAY — CLASS_NAME RESOLUTION
+Problem: After context compaction and session resume, Godot reported `Could not find type "CastTargetOverlay"` at parse time in `river_world.gd`.
+Decision: Use `const _CastTargetOverlayScript = preload("res://scripts/ui/cast_target_overlay.gd")` and declare `var _target_overlay` (untyped) to allow duck-typed property access.
+Rationale: Godot 4's class_name registry can fail to find newly created scripts that haven't been scanned in the current editor session. Explicit preload bypasses the registry entirely and is deterministic.
+
+---
+
+BUG FIXES
+
+[B1] GDScript 4.3 — abs() type inference
+  File: river_generator.gd
+  Problem: `var centre_d := abs(frac - 0.5) * 2.0` — GDScript 4.3 does not infer float from abs().
+  Fix: `var centre_d: float = absf(frac - 0.5) * 2.0` plus explicit `: float` on all chained vars.
+  Cascaded: compile failure → RiverRenderer not found → _sections[0] out of bounds crash.
+
+[B2] Indentation corruption from sed substitution
+  Problem: sed pattern matched partial tab sequences, adding 7 tabs instead of 4 in multi-line blocks.
+  Fix: Python str.replace() with exact tab-counted strings, run from shell.
+
+[B3] _snap_to_bank_surface() prevents water entry
+  Problem: Snap ran before wading check each frame; moved angler back to bank Y = 80 even when pressing Down.
+  Fix: Early return on "move_down" pressed. Changed to lerpf(pos, target, 0.20) for smooth following.
+
+---
+
+TECHNICAL NOTES
+
+- `past_grace = maxf(0.0, _stroke_timer - load - 0.25)` — uses _stroke_timer (actual elapsed seconds) so line length doesn't affect grace window duration.
+- `WADE_SPEED_H * maxf(0.25, 1.0 - current * 0.80)` — floor prevents full stop; ceiling at full speed when current=0.
+- Ripple world positions: each RiverRenderer stores absolute tile-pixel coordinates. Chevrons are stationary in world space; animation is pure time-offset fmod, no coordinate drift.
+- CastTargetOverlay preload pattern: always prefer explicit preload over class_name when the referencing script and target script were not both present at the last Godot editor scan.
+
+---
+
+FILES MODIFIED
+- scripts/river/river_generator.gd — absf() fix, bank_noise, top_bank_profile, width_frac current
+- scripts/river/river_data.gd — added top_bank_profile
+- scripts/river/river_renderer.gd — added _arrows, _build_arrows(), _draw_arrows()
+- scripts/river/river_constants.gd — added BOTTOM_BANK_H_TILES, MIN_DEPTH_TILES, MAX_DEPTH_TILES
+- scripts/angler/angler.gd — tile-based wading, current resistance, _snap_to_bank_surface() fix
+- scripts/ui/rod_arc_hud.gd — correct loop geometry, grace period, target notch in bar
+- scripts/casting/casting_controller.gd — aimed_target, quality/length scatter in _enter_result()
+- scripts/river/river_world.gd — cast target input, _try_set_cast_target(), _clear_cast_target(), overlay management
+
+FILES CREATED
+- scripts/ui/cast_target_overlay.gd — world-space cast target indicator
+
+---
+
+PENDING / NEXT SESSION
+- Insect particle world-space conversion (currently screen-space; moves with camera)
+- Fish AI interaction with cast targets (fish should respond to fly proximity at aimed_target)
+- Fly drag visualization during drift (DriftController.drag_factor → line sag in HUD)
+- Sound effects pass (wading splash, cast whoosh, rise splash)

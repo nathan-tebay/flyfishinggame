@@ -1,5 +1,26 @@
 extends Node2D
 
+# Preload class_name scripts explicitly — required for cold-start compilation.
+# Godot 4.3 does not guarantee the global class registry is populated before
+# scripts are compiled on first run (no cache). Using preload + matching const
+# name lets existing type annotations resolve without modification.
+const RiverCamera        = preload("res://scripts/camera/river_camera.gd")
+const RiverRenderer      = preload("res://scripts/river/river_renderer.gd")
+const RiverGenerator     = preload("res://scripts/river/river_generator.gd")
+const RiverData          = preload("res://scripts/river/river_data.gd")
+const Angler             = preload("res://scripts/angler/angler.gd")
+const CastingController  = preload("res://scripts/casting/casting_controller.gd")
+const DriftController    = preload("res://scripts/casting/drift_controller.gd")
+const RodArcHUD          = preload("res://scripts/ui/rod_arc_hud.gd")
+const FlySelector        = preload("res://scripts/ui/fly_selector.gd")
+const NetSampler         = preload("res://scripts/angler/net_sampler.gd")
+const SamplePanel        = preload("res://scripts/ui/sample_panel.gd")
+const HooksetController  = preload("res://scripts/catching/hookset_controller.gd")
+const LogbookPanel       = preload("res://scripts/ui/logbook_panel.gd")
+const FishAI             = preload("res://scripts/fish/fish_ai.gd")
+const CatchLog           = preload("res://scripts/catching/catch_log.gd")
+const InsectParticle     = preload("res://scripts/flies/insect_particle.gd")
+const SpookCalculator    = preload("res://scripts/fish/spook_calculator.gd")
 
 @onready var camera:       RiverCamera       = $Camera2D
 @onready var tilemap:      RiverRenderer     = $TileMap
@@ -29,10 +50,14 @@ var river_data: RiverData
 # Each entry: { index:int, data:RiverData, renderer:Node, fish_list:Array, start_px:float }
 var _sections: Array = []
 
+const _CastTargetOverlayScript = preload("res://scripts/ui/cast_target_overlay.gd")
+
 var _current_section_idx: int = 0
 var _catch_log: CatchLog = null
 var _fish_list: Array = []    # all active fish across loaded sections
+var _insect_nodes: Array = [] # world-space InsectParticle children
 var _show_debug := false
+var _target_overlay  # CastTargetOverlay — instantiated in _ready
 
 
 func _ready() -> void:
@@ -88,6 +113,9 @@ func _ready() -> void:
 	TimeOfDay.period_changed.connect(_on_period_changed)
 	angler.standing_still.connect(_on_angler_standing_still)
 
+	_target_overlay = _CastTargetOverlayScript.new()
+	add_child(_target_overlay)
+
 	if OS.is_debug_build():
 		print("RiverWorld ready | seed=%d | top holds=%d | structures=%d" % [
 			river_data.seed, river_data.top_holds.size(), river_data.structures.size(),
@@ -97,6 +125,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	camera.set_anchor(angler.global_position.x)
 	_check_section_transition()
+	if _target_overlay != null:
+		_target_overlay.angler_pos = angler.position
 
 
 func _input(event: InputEvent) -> void:
@@ -108,6 +138,16 @@ func _input(event: InputEvent) -> void:
 				renderer.show_hold_debug(river_data)
 			elif renderer != null:
 				renderer.hide_hold_debug()
+
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		var mb := event as InputEventMouseButton
+		match mb.button_index:
+			MOUSE_BUTTON_LEFT:
+				# Only accept target while idle — don't interrupt an active cast
+				if casting.state == CastingController.State.IDLE:
+					_try_set_cast_target(mb.position)
+			MOUSE_BUTTON_RIGHT:
+				_clear_cast_target()
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +266,7 @@ func _update_angler_section(idx: int) -> void:
 		hookset_controller.reset()
 		drift.on_drift_ended()
 		casting.state = CastingController.State.IDLE
+		_clear_cast_target()
 		return
 
 
@@ -342,14 +383,24 @@ func _on_hatch_state_changed(state: int) -> void:
 
 
 func _spawn_insects(state: int) -> void:
-	for child in insect_layer.get_children():
-		child.queue_free()
+	for node in _insect_nodes:
+		if is_instance_valid(node):
+			node.queue_free()
+	_insect_nodes.clear()
 
 	var profiles: Array = HatchManager.active_profiles
 	if profiles.is_empty():
 		return
 
-	var vp_w := get_viewport_rect().size.x
+	var vp_w     := get_viewport_rect().size.x
+	# Spawn across a 2-viewport-wide window centred on the angler (world space).
+	var centre_x := angler.position.x
+	var x_min    := centre_x - vp_w * 0.5
+	var x_max    := centre_x + vp_w * 1.5
+	# Wrap range is the same window; insects drift right and re-enter from the left.
+	var wrap_min := x_min - 64.0
+	var wrap_max := x_max + 64.0
+
 	const INSECTS_PER_PROFILE := 18
 
 	for p in profiles:
@@ -368,14 +419,17 @@ func _spawn_insects(state: int) -> void:
 
 		var n := int(INSECTS_PER_PROFILE * abundance)
 		for _i in range(n):
-			var ip   := InsectParticle.new()
-			var sx   := randf_range(-32.0, vp_w + 32.0)
-			var sy   := randf_range(y_min, y_max)
-			var vx   := randf_range(-18.0, -6.0)
-			var vy   := randf_range(-1.0, 1.0)
+			var ip := InsectParticle.new()
+			ip.z_index = 5
+			var sx := randf_range(x_min, x_max)
+			var sy := randf_range(y_min, y_max)
+			# Downstream = positive x; speed loosely proportional to surface current
+			var vx := randf_range(40.0, 90.0)
+			var vy := randf_range(-1.0, 1.0)
 			ip.setup(color, movement, Vector2(sx, sy),
-					 Vector2(vx, vy), -32.0, vp_w + 32.0)
-			insect_layer.add_child(ip)
+					 Vector2(vx, vy), wrap_min, wrap_max)
+			add_child(ip)
+			_insect_nodes.append(ip)
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +443,40 @@ func _on_sample_complete(results: Array) -> void:
 # ---------------------------------------------------------------------------
 # Casting events
 # ---------------------------------------------------------------------------
+
+func _try_set_cast_target(screen_pos: Vector2) -> void:
+	var world_pos: Vector2 = get_viewport().get_canvas_transform().affine_inverse() * screen_pos
+	var river_data_local := angler.river_data
+	if river_data_local == null:
+		return
+	var col := clampi(int((world_pos.x - angler.section_start_x) / RiverConstants.TILE_SIZE),
+			0, river_data_local.width - 1)
+	var row := clampi(int(world_pos.y / RiverConstants.TILE_SIZE), 0, river_data_local.height - 1)
+	var tile: int = river_data_local.tile_map[col][row]
+	# Only allow water tiles as cast targets
+	if tile != RiverConstants.TILE_SURFACE and tile != RiverConstants.TILE_MID_DEPTH and \
+			tile != RiverConstants.TILE_DEEP and tile != RiverConstants.TILE_RIVERBED:
+		return
+	# Snap to tile centre
+	var snapped := Vector2(
+		angler.section_start_x + float(col) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5,
+		float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+	)
+	casting.aimed_target             = snapped
+	_target_overlay.target           = snapped
+	_target_overlay.angler_pos       = angler.position
+	var h_dist := absf(snapped.x - angler.position.x)
+	var req    := clampf(h_dist / float(RiverConstants.TILE_SIZE),
+			CastingController.LINE_MIN, CastingController.LINE_MAX)
+	_target_overlay.required_line    = req
+	rod_arc_hud.target_line_length   = req
+
+
+func _clear_cast_target() -> void:
+	casting.aimed_target           = Vector2(-1.0, -1.0)
+	_target_overlay.target         = Vector2(-1.0, -1.0)
+	rod_arc_hud.target_line_length = -1.0
+
 
 func _on_cast_result(quality: int, target_x: float, target_y: float) -> void:
 	if OS.is_debug_build():

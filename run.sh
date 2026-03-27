@@ -205,6 +205,14 @@ _install_plugin() {
 cmd_run() {
     _check_plugin
     local godot; godot="$(_godot_bin)"
+    # Cold-start guard: Godot 4.3 scans all scripts at startup to build the
+    # global class registry. Without the cache, cross-file class_name references
+    # fail to resolve. A headless editor pass rebuilds the registry correctly
+    # (two-phase: scan class_names first, then compile) before the game runs.
+    if [[ ! -f "${PROJECT_DIR}/.godot/global_script_class_cache.cfg" ]]; then
+        info "Rebuilding script class cache (cold start)..."
+        "$godot" --path "$PROJECT_DIR" --headless --editor --quit 2>/dev/null || true
+    fi
     info "Running game with ${godot}..."
     "$godot" --path "$PROJECT_DIR" "$@"
 }

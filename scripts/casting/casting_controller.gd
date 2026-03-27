@@ -56,6 +56,9 @@ var _target_y: float = 0.0
 # Mouse accumulator for mend detection during drift
 var _mend_accum: float = 0.0
 
+# Set by RiverWorld when player clicks a cast target. Vector2(-1,-1) = no target.
+var aimed_target: Vector2 = Vector2(-1.0, -1.0)
+
 
 func _input(event: InputEvent) -> void:
 	if state == State.DRIFT and event is InputEventMouseMotion:
@@ -189,6 +192,17 @@ func _enter_result() -> void:
 	state        = State.RESULT
 	_state_timer = 0.0
 	cast_quality = _evaluate_quality()
+	# Apply cast scatter: tight=accurate, sloppy/bad=wider spread
+	# Extra scatter if line length doesn't match required distance to aimed target
+	var base_scatter: float = ([0.4, 1.8, 4.5] as Array)[cast_quality] * RiverConstants.TILE_SIZE
+	if aimed_target.x >= 0.0:
+		var required_tiles := absf(aimed_target.x - angler.position.x) / float(RiverConstants.TILE_SIZE)
+		var length_error   := absf(line_length - required_tiles)
+		base_scatter += length_error * RiverConstants.TILE_SIZE * 0.6
+	var rng := RandomNumberGenerator.new()
+	rng.seed = (int(_target_x) * 7919) ^ (int(line_length * 100.0))
+	_target_x += rng.randf_range(-base_scatter, base_scatter)
+	_target_y += rng.randf_range(-base_scatter * 0.25, base_scatter * 0.25)
 	var names    := ["TIGHT", "SLOPPY", "BAD"]
 	print("CastingController: result = %s | line=%.1f tiles | target_x=%.0f" % [
 		names[cast_quality], line_length, _target_x
@@ -197,13 +211,19 @@ func _enter_result() -> void:
 
 
 func _compute_target() -> void:
-	if angler:
-		var dist   := line_length * float(RiverConstants.TILE_SIZE)
-		_target_x   = maxf(angler.position.x - dist, 0.0)
-		_target_y   = float(RiverConstants.BANK_H_TILES * RiverConstants.TILE_SIZE)
-	else:
+	if angler == null:
 		_target_x = 0.0
 		_target_y = 96.0
+		return
+	if aimed_target.x >= 0.0:
+		# Use the player-selected target
+		_target_x = aimed_target.x
+		_target_y = aimed_target.y
+	else:
+		# No target: place fly at line-length distance upstream
+		var dist := line_length * float(RiverConstants.TILE_SIZE)
+		_target_x  = maxf(angler.position.x - dist, 0.0)
+		_target_y  = float(RiverConstants.BANK_H_TILES * RiverConstants.TILE_SIZE)
 
 
 func _evaluate_quality() -> CastQuality:

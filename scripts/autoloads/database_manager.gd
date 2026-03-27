@@ -1,5 +1,7 @@
 extends Node
 
+const DifficultyConfig = preload("res://resources/difficulty_config.gd")
+
 const DB_PATH := "user://flyfishing.db"
 const SCHEMA_VERSION := 1
 

@@ -1,8 +1,8 @@
 class_name InsectParticle
 extends Node2D
 
-# Lightweight animated insect dot. Lives in InsectLayer (CanvasLayer) so
-# position is in screen coordinates — no camera transform needed.
+# Lightweight animated insect dot. Lives in world space as a child of RiverWorld.
+# Drifts downstream with the current; wraps within a world-space x range.
 
 var _color:    Color  = Color.WHITE
 var _movement: String = "drift"
@@ -27,12 +27,13 @@ func _process(delta: float) -> void:
 		_skitter_timer -= delta
 		if _skitter_timer <= 0.0:
 			_skitter_timer = randf_range(0.15, 0.60)
-			_vel.x = randf_range(-30.0, 10.0)
+			# Erratic but net-downstream: bias positive x so they still drift with current
+			_vel.x = randf_range(10.0, 60.0)
 			_vel.y = randf_range(-5.0,  5.0)
 
 	position += _vel * delta
 
-	# Wrap within screen strip
+	# Wrap within world-space x range
 	if position.x < _wrap_min_x - 32.0:
 		position.x = _wrap_max_x + 16.0
 	elif position.x > _wrap_max_x + 32.0:
