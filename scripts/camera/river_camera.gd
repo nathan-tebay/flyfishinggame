@@ -67,3 +67,10 @@ func set_anchor(world_x: float) -> void:
 	var range_px  := vp_w * SCOUT_RANGE
 	limit_left  = int(maxf(0.0,         world_x - range_px - _viewport_half_w))
 	limit_right = int(minf(_section_px, world_x + range_px + _viewport_half_w))
+
+
+# Expand the right boundary when a new section is loaded.
+# right_world_px should be the world x of the new rightmost section's far edge.
+func update_section_limit(right_world_px: float) -> void:
+	_section_px = right_world_px
+	limit_right = int(right_world_px)

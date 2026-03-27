@@ -35,6 +35,10 @@ var size_class: int = SpookCalculator.FishSize.MEDIUM
 var variant_seed: int = 0
 var hold_pos: Vector2 = Vector2.ZERO
 
+# World x at which this fish's section starts (0 for section 0).
+# Used to convert world position to local tile coordinates.
+var section_start_px: float = 0.0
+
 var angler: Angler = null
 var river_data: RiverData = null
 
@@ -62,7 +66,7 @@ func _ready() -> void:
 	_vision_cone = get_node("FishVisionCone") as FishVisionCone
 
 	if _renderer:
-		_renderer.initialize(species, size_class, variant_seed, river_data)
+		_renderer.initialize(species, size_class, variant_seed, river_data, section_start_px)
 	if _vision_cone:
 		_vision_cone.setup(GameManager.difficulty)
 
@@ -100,8 +104,8 @@ func _set_state(new_state: State) -> void:
 	if state == new_state:
 		return
 	# Log spook-related transitions (key testable behaviour)
-	if new_state == State.ALERT or new_state == State.SPOOKED or \
-			new_state == State.RELOCATING or state == State.ALERT or state == State.SPOOKED:
+	if OS.is_debug_build() and (new_state == State.ALERT or new_state == State.SPOOKED or \
+			new_state == State.RELOCATING or state == State.ALERT or state == State.SPOOKED):
 		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
 		print("FishAI [%s %s]: %s → %s  mem=%.0f" % [
 			SPECIES_NAMES[species] as String, sz_name,
@@ -185,7 +189,7 @@ func _compute_relocation() -> void:
 		var hx: int = hold["x"]
 		var hy: int = hold["y"]
 		var hp := Vector2(
-			float(hx) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5,
+			_tile_to_world_x(hx),
 			float(hy) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
 		)
 		if position.distance_to(hp) < 60.0:
@@ -210,8 +214,8 @@ func _find_feeding_edge() -> Vector2:
 	if river_data == null:
 		return hold_pos
 
-	var tx := clampi(int(hold_pos.x / RiverConstants.TILE_SIZE), 0, river_data.width - 1)
-	var ty := clampi(int(hold_pos.y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
+	var tx := _local_tile_x(hold_pos.x)
+	var ty := _local_tile_y(hold_pos.y)
 
 	var hold_curr: float = river_data.current_map[tx][ty]
 	var best_pos := hold_pos
@@ -230,7 +234,7 @@ func _find_feeding_edge() -> Vector2:
 			if curr > best_curr and curr > hold_curr + 0.15:
 				best_curr = curr
 				best_pos  = Vector2(
-					float(nx) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5,
+					_tile_to_world_x(nx),
 					float(ny) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
 				)
 	return best_pos
@@ -240,11 +244,27 @@ func _find_feeding_edge() -> Vector2:
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Convert world x to local tile column, clamped to river_data bounds.
+func _local_tile_x(world_x: float) -> int:
+	return clampi(int((world_x - section_start_px) / RiverConstants.TILE_SIZE),
+		0, river_data.width - 1)
+
+
+# Convert world y to tile row, clamped to river_data bounds.
+func _local_tile_y(world_y: float) -> int:
+	return clampi(int(world_y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
+
+
+# Convert local tile column back to world x (tile centre).
+func _tile_to_world_x(tx: int) -> float:
+	return section_start_px + float(tx) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
+
+
 func _cover_value() -> float:
 	if river_data == null:
 		return 0.0
-	var tx := clampi(int(position.x / RiverConstants.TILE_SIZE), 0, river_data.width - 1)
-	var ty := clampi(int(position.y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
+	var tx := _local_tile_x(position.x)
+	var ty := _local_tile_y(position.y)
 	var tile: int = river_data.tile_map[tx][ty]
 	return RiverConstants.STRUCTURE_COVER.get(tile, 0.0) as float
 
@@ -263,18 +283,20 @@ func _check_lockdown() -> void:
 		return
 	if intrusion_memory >= float(threshold) and not _locked_down:
 		_locked_down = true
-		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
-		print("FishAI [%s %s]: LOCKED DOWN (mem=%.0f)" % [
-			SPECIES_NAMES[species] as String, sz_name, intrusion_memory
-		])
+		if OS.is_debug_build():
+			var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+			print("FishAI [%s %s]: LOCKED DOWN (mem=%.0f)" % [
+				SPECIES_NAMES[species] as String, sz_name, intrusion_memory
+			])
 
 
 func _on_dawn() -> void:
 	if _locked_down:
 		_locked_down = false
 		intrusion_memory = 0.0
-		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
-		print("FishAI [%s %s]: dawn — lockdown cleared" % [SPECIES_NAMES[species] as String, sz_name])
+		if OS.is_debug_build():
+			var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+			print("FishAI [%s %s]: dawn — lockdown cleared" % [SPECIES_NAMES[species] as String, sz_name])
 	else:
 		intrusion_memory = 0.0
 	if state == State.HOLDING:
@@ -292,10 +314,11 @@ func _on_period_changed(_period: int) -> void:
 
 func receive_hard_spook() -> void:
 	# Called by HooksetController on too-early hookset; bypasses proximity check.
-	var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
-	print("FishAI [%s %s]: HARD SPOOK from early hookset" % [
-		SPECIES_NAMES[species] as String, sz_name,
-	])
+	if OS.is_debug_build():
+		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+		print("FishAI [%s %s]: HARD SPOOK from early hookset" % [
+			SPECIES_NAMES[species] as String, sz_name,
+		])
 	intrusion_memory += 1.0
 	_check_lockdown()
 	_compute_relocation()
@@ -304,10 +327,11 @@ func receive_hard_spook() -> void:
 
 func receive_miss_late() -> void:
 	# Called by HooksetController when strike window expires; fish spits fly.
-	var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
-	print("FishAI [%s %s]: missed hookset — still feeding" % [
-		SPECIES_NAMES[species] as String, sz_name,
-	])
+	if OS.is_debug_build():
+		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+		print("FishAI [%s %s]: missed hookset — still feeding" % [
+			SPECIES_NAMES[species] as String, sz_name,
+		])
 	if state == State.FEEDING or state == State.ALERT:
 		_set_state(State.FEEDING)
 
@@ -343,19 +367,21 @@ func on_fly_presented(fly_name: String, fly_stage: String,
 	if intrusion_delta > 0.0:
 		intrusion_memory += intrusion_delta
 		_check_lockdown()
-		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
-		var kind := "stage" if intrusion_delta < 1.0 else "species"
-		print("FishAI [%s %s]: fly rejected — wrong %s (Δ=%.1f mem=%.1f)" % [
-			SPECIES_NAMES[species] as String, sz_name,
-			kind, intrusion_delta, intrusion_memory,
-		])
+		if OS.is_debug_build():
+			var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+			var kind := "stage" if intrusion_delta < 1.0 else "species"
+			print("FishAI [%s %s]: fly rejected — wrong %s (Δ=%.1f mem=%.1f)" % [
+				SPECIES_NAMES[species] as String, sz_name,
+				kind, intrusion_delta, intrusion_memory,
+			])
 		_set_state(State.ALERT)
 		return
 
 	if randf() < take_prob:
-		var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
-		print("FishAI [%s %s]: TAKING fly '%s' (prob=%.0f%%)" % [
-			SPECIES_NAMES[species] as String, sz_name,
-			fly_name, take_prob * 100.0,
-		])
+		if OS.is_debug_build():
+			var sz_name: String = SpookCalculator.FishSize.keys()[size_class]
+			print("FishAI [%s %s]: TAKING fly '%s' (prob=%.0f%%)" % [
+				SPECIES_NAMES[species] as String, sz_name,
+				fly_name, take_prob * 100.0,
+			])
 		take_fly.emit()

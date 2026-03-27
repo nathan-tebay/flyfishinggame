@@ -148,3 +148,31 @@ Camera follows `Angler.position.x` (with smoothing). `set_anchor()` constrains l
 - Shallow water: ripple particle on movement
 - Silhouette contrast boosted via shader parameter at midday
 - Sim difficulty: no telegraph color shifts on spook states
+
+### Phase 8 — Session Config & Section Streaming
+
+**Session config screen** (`scenes/SessionConfig.tscn`, `scripts/ui/session_config.gd`)
+- Main scene. Keyboard-driven `_draw()` UI: Tab=cycle fields, ←/→=change value, 0-9=seed digits, Enter=start.
+- Reads last settings from DB; saves before `GameManager.new_session()`. Calls `TimeOfDay.set_time_scale()` directly.
+- Changes scene to `RiverWorld.tscn` on start.
+
+**Section streaming** (in `river_world.gd`)
+- Sections tracked in `_sections: Array` of `{index, data, renderer, fish_list, start_px}` Dicts.
+- `SECTION_W_PX = 1440 × 32 = 46 080 px`. Section N starts at world x = N × SECTION_W_PX.
+- Seed chain: `abs(hash(session_seed + idx × 999983))`.
+- Pre-generate next section at 70% through current; despawn section two behind current.
+- Section 0 renderer = `tilemap` @onready (never freed; hidden on despawn). Section 1+ = `RiverRenderer.new()` nodes.
+- On section crossing: update `angler.river_data`, `angler.section_start_x`, `net_sampler.river_data`, interrupt active cast.
+- Camera right limit expanded via `camera.update_section_limit(right_px)`.
+
+**Tile coordinate conventions (Phase 8)**
+- `fish.section_start_px` — world x of the fish's section left edge; set by `_spawn_section_fish`.
+- `FishAI._local_tile_x(world_x)` / `_local_tile_y(world_y)` — convert world coords to river_data tile indices.
+- `FishAI._tile_to_world_x(tx)` — reverse: local tile column → world x (tile centre).
+- `FishRenderer._section_start_px` — passed via `initialize(..., section_start_px)`.
+- `angler.section_start_x` — used in `_max_wade_y()` col calculation; updated on section crossing.
+- Angler horizontal x is unconstrained (camera limits control scouting range).
+
+**Debug print policy**
+- All `print()` calls in release-path code wrapped with `if OS.is_debug_build():`.
+- Applies to: FishAI state/lockdown/take messages, RiverWorld section events, cast results, angler standing-still.

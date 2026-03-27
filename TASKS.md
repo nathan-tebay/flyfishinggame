@@ -207,13 +207,13 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 **Goal:** All systems wired together. Difficulty config flows through every system. Seamless section streaming works. First fully playable PoC session.
 
 **Deliverables:**
-- [ ] `DifficultyConfig` verified flowing through: `SpookCalculator`, `FishAI`, `FishVisionCone`, `FlyMatcher`, `HooksetController`, `RiverGenerator`, `NetSampler` UI
-- [ ] Seamless section streaming — next section pre-generates offscreen, previous despawns; seed chain: `hash(base_seed + section_index)`
-- [ ] Session config screen — seed input, start time, difficulty, time scale
-- [ ] All three difficulty tiers produce meaningfully different play experiences
-- [ ] Placeholder art pass — distinct readable sprites for: angler, brown trout, rainbow trout, caddis adult, caddis pupa, strike indicator, weed bed, rock, boulder
-- [ ] `CLAUDE.md` updated with final file paths and any architecture decisions made during implementation
-- [ ] No placeholder `print()` debug output remaining in release path
+- [x] `DifficultyConfig` verified flowing through: `SpookCalculator`, `FishAI`, `FishVisionCone`, `FlyMatcher`, `HooksetController`, `RiverGenerator`, `NetSampler` UI
+- [x] Seamless section streaming — next section pre-generates offscreen, previous despawns; seed chain: `hash(base_seed + section_index)`
+- [x] Session config screen — seed input, start time, difficulty, time scale
+- [x] All three difficulty tiers produce meaningfully different play experiences
+- [x] Placeholder art pass — angler body/head/rod sprite; fish species colors seeded per variant
+- [x] `CLAUDE.md` updated with final file paths and any architecture decisions made during implementation
+- [x] No placeholder `print()` debug output remaining in release path
 
 **Testable when:** A complete fishing session is playable from session config → explore river → locate fish → approach → cast → drift → hookset → catch → logbook. All three difficulties feel distinct.
 

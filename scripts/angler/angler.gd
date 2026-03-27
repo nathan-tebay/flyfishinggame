@@ -24,7 +24,8 @@ var is_wading: bool = false
 var wading_depth: float = 0.0      # 0.0 = at surface, 1.0 = max wading depth
 var vibration_radius: float = 0.0  # read by SpookCalculator; 0 when still or on bank
 
-var river_data: RiverData  # assigned by RiverWorld after river is generated
+var river_data: RiverData          # assigned by RiverWorld; updated on section crossing
+var section_start_x: float = 0.0  # world x of the current section's left edge
 
 var _still_timer: float = 0.0
 var _was_still: bool = false
@@ -61,11 +62,10 @@ func _handle_movement(delta: float) -> bool:
 	elif Input.is_action_pressed("move_up"):
 		dy = -1.0
 
-	# Horizontal
+	# Horizontal — upper bound is effectively unlimited; camera limits constrain scouting
 	if dx != 0.0:
 		var spd := WADE_SPEED_H if is_wading else BANK_SPEED
-		var max_x := float(RiverConstants.SECTION_W_TILES * RiverConstants.TILE_SIZE)
-		position.x = clampf(position.x + dx * spd * delta, 0.0, max_x)
+		position.x = maxf(position.x + dx * spd * delta, 0.0)
 
 	# Vertical — entering / leaving water
 	if dy > 0.0:
@@ -90,7 +90,7 @@ func _max_wade_y() -> float:
 	if river_data == null:
 		return depth_cap
 
-	var col := clampi(int(position.x / RiverConstants.TILE_SIZE), 0, river_data.width - 1)
+	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE), 0, river_data.width - 1)
 	var river_bottom_y := float(WADE_ENTRY_Y)
 	for row in range(RiverConstants.BANK_H_TILES, river_data.height):
 		var t: int = river_data.tile_map[col][row]
@@ -156,11 +156,28 @@ func _refresh_shadow_visibility() -> void:
 # ---------------------------------------------------------------------------
 
 func _draw() -> void:
-	var w := 16.0
-	var h := 28.0
-	# Body — magenta rectangle, feet at y=0 (angler's reference point)
-	draw_rect(Rect2(-w * 0.5, -h, w, h), Color(0.9, 0.2, 0.6))
-	# Wading depth indicator — cyan bar on left edge
+	var body_color := Color(0.85, 0.55, 0.25)  # tan/khaki angler
+	var leg_color  := Color(0.45, 0.32, 0.18)
+	var head_color := Color(0.92, 0.78, 0.60)
+
 	if is_wading:
-		var bar_h := wading_depth * h
-		draw_rect(Rect2(-w * 0.5 - 8.0, -h, 4.0, bar_h), Color(0.3, 0.6, 0.95))
+		body_color = Color(0.42, 0.60, 0.80)  # blue waders
+		leg_color  = Color(0.28, 0.42, 0.65)
+
+	# Legs (feet at y=0)
+	draw_rect(Rect2(-5.0, -14.0, 4.0, 14.0), leg_color)
+	draw_rect(Rect2( 1.0, -14.0, 4.0, 14.0), leg_color)
+
+	# Body
+	draw_rect(Rect2(-7.0, -30.0, 14.0, 16.0), body_color)
+
+	# Head
+	draw_circle(Vector2(0.0, -34.0), 6.0, head_color)
+
+	# Rod (thin line extending up-right from hand)
+	draw_line(Vector2(6.0, -26.0), Vector2(22.0, -52.0), Color(0.55, 0.38, 0.20), 1.5)
+
+	# Wading depth indicator — blue bar on left side
+	if is_wading:
+		var bar_h := wading_depth * 30.0
+		draw_rect(Rect2(-14.0, -30.0, 4.0, bar_h), Color(0.30, 0.55, 0.95, 0.70))

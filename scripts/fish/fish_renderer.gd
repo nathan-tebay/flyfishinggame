@@ -32,6 +32,7 @@ const STATE_NAMES: Array = ["FEEDING", "ALERT", "SPOOKED", "RELOCATING", "HOLDIN
 var _species: int = 0
 var _size_class: int = 0
 var _river_data: RiverData = null
+var _section_start_px: float = 0.0
 
 var _display_state: int = 0
 var _intrusion_memory: float = 0.0
@@ -41,10 +42,12 @@ var _body_h: float = 6.5
 var _base_color: Color = Color.WHITE
 
 
-func initialize(species: int, size_class: int, seed: int, river_data: RiverData) -> void:
-	_species    = species
-	_size_class = size_class
-	_river_data = river_data
+func initialize(species: int, size_class: int, seed: int, river_data: RiverData,
+		section_start_px: float = 0.0) -> void:
+	_species          = species
+	_size_class       = size_class
+	_river_data       = river_data
+	_section_start_px = section_start_px
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
@@ -119,7 +122,7 @@ func _compute_opacity() -> float:
 	var depth_factor := 0.82
 	if _river_data != null:
 		var gp := global_position
-		var tx := clampi(int(gp.x / RiverConstants.TILE_SIZE), 0, _river_data.width - 1)
+		var tx := clampi(int((gp.x - _section_start_px) / RiverConstants.TILE_SIZE), 0, _river_data.width - 1)
 		var ty := clampi(int(gp.y / RiverConstants.TILE_SIZE), 0, _river_data.height - 1)
 		var tile: int = _river_data.tile_map[tx][ty]
 		match tile:
