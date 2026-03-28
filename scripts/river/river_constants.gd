@@ -64,6 +64,15 @@ const STRUCTURE_HATCH: Dictionary = {
 	9: 0.2,   # GRAVEL_BAR
 }
 
+# --- Habitat type IDs — per-column classification in RiverData.habitat_type[] ---
+const HABITAT_POOL_HEAD  := 0   # upstream throat of pool; plunge / food funnel; prime lie
+const HABITAT_POOL_BELLY := 1   # deep slow centre; sheltering lie; browns dominate
+const HABITAT_POOL_TAIL  := 2   # tailout / tailout; food concentrator; exposed feeding lie
+const HABITAT_RUN        := 3   # moderate depth + speed; prime daytime feeding water
+const HABITAT_RIFFLE     := 4   # shallow fast broken water; invertebrate factory
+const HABITAT_FORD       := 5   # crossable shallow; low fish holding value
+const HABITAT_POCKET     := 6   # boulder/rock pocket water; V-seam prime lies
+
 # --- Sky colors per TimeOfDay.Period index (Dawn..Night) ---
 const SKY_COLORS: Array = [
 	Color(0.95, 0.60, 0.35),  # DAWN      — orange

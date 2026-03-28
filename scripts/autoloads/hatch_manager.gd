@@ -30,9 +30,10 @@ func _update_state() -> void:
 	current_state  = new_state
 	active_profiles = _build_profiles(current_state)
 	hatch_state_changed.emit(current_state)
-	print("HatchManager: %s | %d active profile(s)" % [
-		hatch_state_name(), active_profiles.size()
-	])
+	if OS.is_debug_build():
+		print("HatchManager: %s | %d active profile(s)" % [
+			hatch_state_name(), active_profiles.size()
+		])
 
 
 func _period_to_hatch_state(period: int) -> int:

@@ -34,6 +34,9 @@ var species: int = Species.BROWN_TROUT
 var size_class: int = SpookCalculator.FishSize.MEDIUM
 var variant_seed: int = 0
 var hold_pos: Vector2 = Vector2.ZERO
+# Exposure factor from RiverData (via hold dict): 0.0 = sheltered pool belly, 1.0 = exposed tailout/riffle.
+# Passed to SpookCalculator — exposed fish have a larger effective spook radius.
+var exposure_factor: float = 0.5
 
 # World x at which this fish's section starts (0 for section 0).
 # Used to convert world position to local tile coordinates.
@@ -138,7 +141,8 @@ func _check_angler(delta: float) -> void:
 		angler.position,
 		position,
 		angler.is_wading,
-		1.0 if angler.is_moving else 0.0
+		1.0 if angler.is_moving else 0.0,
+		exposure_factor
 	)
 	var dist := angler.position.distance_to(position)
 
@@ -196,7 +200,7 @@ func _compute_relocation() -> void:
 			continue   # don't stay nearby
 
 		var dist_angler := angler.position.distance_to(hp) if angler else 0.0
-		var depth: float = river_data.depth_profile[hx]
+		var depth: float = river_data.depth_profile[hx] as float
 		var score := dist_angler * 0.55 + depth * 160.0
 
 		if score > best_score:
@@ -217,7 +221,7 @@ func _find_feeding_edge() -> Vector2:
 	var tx := _local_tile_x(hold_pos.x)
 	var ty := _local_tile_y(hold_pos.y)
 
-	var hold_curr: float = river_data.current_map[tx][ty]
+	var hold_curr: float = river_data.current_map[tx][ty] as float
 	var best_pos := hold_pos
 	var best_curr := hold_curr
 
@@ -230,7 +234,7 @@ func _find_feeding_edge() -> Vector2:
 			var tile: int = river_data.tile_map[nx][ny]
 			if tile == RiverConstants.TILE_AIR or tile == RiverConstants.TILE_BANK:
 				continue
-			var curr: float = river_data.current_map[nx][ny]
+			var curr: float = river_data.current_map[nx][ny] as float
 			if curr > best_curr and curr > hold_curr + 0.15:
 				best_curr = curr
 				best_pos  = Vector2(

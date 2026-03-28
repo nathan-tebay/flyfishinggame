@@ -51,6 +51,7 @@ var river_data: RiverData
 var _sections: Array = []
 
 const _CastTargetOverlayScript = preload("res://scripts/ui/cast_target_overlay.gd")
+const _TileLegendScript        = preload("res://scripts/ui/tile_legend.gd")
 
 var _current_section_idx: int = 0
 var _catch_log: CatchLog = null
@@ -58,6 +59,7 @@ var _fish_list: Array = []    # all active fish across loaded sections
 var _insect_nodes: Array = [] # world-space InsectParticle children
 var _show_debug := false
 var _target_overlay  # CastTargetOverlay — instantiated in _ready
+var _tile_legend  # TileLegend — F1 tile-type reference overlay
 
 
 func _ready() -> void:
@@ -116,6 +118,9 @@ func _ready() -> void:
 	_target_overlay = _CastTargetOverlayScript.new()
 	add_child(_target_overlay)
 
+	_tile_legend = _TileLegendScript.new()
+	add_child(_tile_legend)
+
 	if OS.is_debug_build():
 		print("RiverWorld ready | seed=%d | top holds=%d | structures=%d" % [
 			river_data.seed, river_data.top_holds.size(), river_data.structures.size(),
@@ -131,13 +136,16 @@ func _process(_delta: float) -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
-		if (event as InputEventKey).physical_keycode == KEY_COMMA:
-			_show_debug = not _show_debug
-			var renderer := _current_renderer()
-			if _show_debug and renderer != null:
-				renderer.show_hold_debug(river_data)
-			elif renderer != null:
-				renderer.hide_hold_debug()
+		match (event as InputEventKey).physical_keycode:
+			KEY_COMMA:
+				_show_debug = not _show_debug
+				var renderer := _current_renderer()
+				if _show_debug and renderer != null:
+					renderer.show_hold_debug(river_data)
+				elif renderer != null:
+					renderer.hide_hold_debug()
+			KEY_F1:
+				_tile_legend.toggle()
 
 	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		var mb := event as InputEventMouseButton
@@ -284,8 +292,12 @@ func _spawn_section_fish(data: RiverData, section_idx: int, start_px: float) -> 
 		if count >= GameManager.difficulty.fish_per_section:
 			break
 
-		var hx: int = hold["x"]
-		var hy: int = hold["y"]
+		# Apply V-seam and bank-edge spawn offsets computed by the generator.
+		var hx: int = hold["x"] + hold.get("spawn_dx", 0)
+		var hy: int = hold["y"] + hold.get("spawn_dy", 0)
+		hx = clampi(hx, 0, data.width - 1)
+		hy = clampi(hy, 0, data.height - 1)
+
 		var wp := Vector2(
 			start_px + float(hx) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5,
 			float(hy) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
@@ -304,14 +316,20 @@ func _spawn_section_fish(data: RiverData, section_idx: int, start_px: float) -> 
 		var rng  := RandomNumberGenerator.new()
 		rng.seed = hash(data.seed + count * 997)
 
-		# Species distribution: 50% Brown, 40% Rainbow, 10% Whitefish
+		# Species: 65% chance of ecologically preferred species, 35% random baseline.
+		# Preserves discovery while being statistically correct for structure/habitat.
+		var best_species: int = hold.get("best_species", FishAI.Species.BROWN_TROUT)
 		var sr := rng.randf()
-		if sr < 0.50:
-			fish.species = FishAI.Species.BROWN_TROUT
-		elif sr < 0.90:
-			fish.species = FishAI.Species.RAINBOW_TROUT
+		if sr < 0.65:
+			fish.species = best_species
 		else:
-			fish.species = FishAI.Species.WHITEFISH
+			var sr2 := rng.randf()
+			if sr2 < 0.50:
+				fish.species = FishAI.Species.BROWN_TROUT
+			elif sr2 < 0.90:
+				fish.species = FishAI.Species.RAINBOW_TROUT
+			else:
+				fish.species = FishAI.Species.WHITEFISH
 
 		# Size distribution: 60% Small, 30% Medium, 10% Large
 		var sz := rng.randf()
@@ -322,11 +340,12 @@ func _spawn_section_fish(data: RiverData, section_idx: int, start_px: float) -> 
 		else:
 			fish.size_class = SpookCalculator.FishSize.LARGE
 
-		fish.variant_seed    = hash(data.seed + count * 7919)
-		fish.hold_pos        = wp
+		fish.variant_seed     = hash(data.seed + count * 7919)
+		fish.hold_pos         = wp
 		fish.section_start_px = start_px
-		fish.angler          = angler
-		fish.river_data      = data
+		fish.angler           = angler
+		fish.river_data       = data
+		fish.exposure_factor  = hold.get("exposure", 0.5)
 
 		fish.take_fly.connect(hookset_controller.on_fish_take.bind(fish))
 		add_child(fish)

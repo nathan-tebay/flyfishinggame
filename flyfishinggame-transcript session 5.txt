@@ -1,0 +1,94 @@
+Fly Fishing Game — Implementation Session 5 Transcript
+Date: 2026-03-28
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+Code review and cleanup (debug print guards, Variant casts), RIVER_ANATOMY_PLAN.md audit, correlated meander bank generation, angler bank/wading movement overhaul, removal of TILE_UNDERCUT_BANK in favour of curvature-based bank-edge depth.
+
+---
+
+DECISIONS LOG
+
+[1] DEBUG PRINT GUARD AUDIT — OS.is_debug_build() WRAPPING
+Problem: ~30 print() calls across 9 files were not wrapped with `if OS.is_debug_build():`, violating the project's debug print policy (CLAUDE.md). These would output to console in release builds.
+Decision: Wrapped every unguarded print() call with the guard pattern. Affected files: casting_controller.gd (7), drift_controller.gd (2), net_sampler.gd (5), hookset_controller.gd (7), hatch_manager.gd (1), fly_selector.gd (1), catch_log.gd (1), database_manager.gd (2), main.gd (7).
+Rationale: Consistent with CLAUDE.md policy. Release builds should have zero console output from game logic.
+Files: 9 files listed above.
+
+[2] VARIANT CAST AUDIT — EXPLICIT `as float` FOR ARRAY ACCESS
+Problem: GDScript Array element access returns Variant. Arithmetic on Variant values triggers "cannot infer type" parse errors in typed contexts. Three locations in fish_ai.gd used uncast array access: `river_data.current_map[tx][ty]` (2 places) and `river_data.depth_profile[hx]` (1 place).
+Decision: Added explicit `as float` casts at all three sites.
+Rationale: GDScript's type inference cannot see through Variant-returning container access. The cast is the idiomatic fix.
+Files: fish_ai.gd.
+
+[3] RIVER_ANATOMY_PLAN.MD AUDIT — CORRECTING PLAN vs CODE DRIFT
+Problem: The plan document specified thresholds, zone lengths, and pocket water mechanics that didn't match the actual implementation. Specifically: pool detection thresholds were 0.27/0.68 (not 0.22/0.72 as planned), zone lengths were fixed constants (HEAD_LEN=15, BELLY_LEN=30, TAIL_LEN=20) rather than the planned ±20% jitter, and pocket water used a proportional window (sw*2+4) with distance-faded exposure rather than a fixed 4-tile window.
+Decision: Updated RIVER_ANATOMY_PLAN.md to reflect actual implementation. Added an "Implementation Notes" section documenting all deviations with rationale. Marked all six phases as complete.
+Rationale: The plan document is a reference for future sessions. Drift between plan and code creates confusion. The deviations were all intentional improvements made during implementation — documenting them preserves the decision context.
+Files: RIVER_ANATOMY_PLAN.md.
+
+[4] CORRELATED MEANDER BANK PROFILES — SINGLE NOISE SOURCE
+Problem: Near and far banks used independent noise sources (seed+77777 and seed+33333 with different frequencies). This meant both banks curved independently — the river didn't meander as a coherent channel. Inside and outside of bends had no physical relationship.
+Decision: Replaced the two independent noises with a single meander noise (seed+77777, freq 0.0018) that shifts the river centerline, plus a width noise (seed+33333, freq 0.004) that varies river width independently. Computed curvature as the meander noise derivative (mn_next - mn) * 600, clamped to ±1. Curvature biases bank thickness: outside of bend → thinner bank (erosion), inside → thicker (deposition). Near bank: near_bank_raw = BANK_H_TILES + (mn+1)*2 - curvature*0.8. Far bank thickness: BOTTOM_BANK_H_TILES + 1 + curvature*0.8 + wn*0.5.
+Rationale: Real rivers meander as a single channel — both banks curve together. The curvature derivative captures the key physical asymmetry: outside bends erode (thinner bank), inside bends deposit (thicker bank). Width noise adds independent variation without breaking the meander correlation.
+Files: river_generator.gd (_build_tile_map).
+
+[5] ANGLER BANK MOVEMENT OVERHAUL — FULL BANK TRAVERSAL + FAR BANK RE-ENTRY
+Problem: Three related bugs. (a) The angler was pinned to the water edge by _snap_to_bank_surface(), which lerped position to _near_bank_edge_y(). The player couldn't walk anywhere else on the bank. (b) Pressing DOWN on the near bank couldn't enter wading — _snap_to_bank_surface() clamped position.y back to the bank edge every frame before the angler could reach the first water tile. (c) Once on the far bank, pressing UP couldn't re-enter water — same clamping issue in reverse.
+Decision: Rewrote _snap_to_bank_surface() to clamp within bank bounds but NOT at the transition edges. Near bank: if position.y <= near_edge_y, clamp within [top_of_screen, near_edge_y]; if past the edge (transitioning to water), only clamp the top. Far bank: if position.y >= fb_top, clamp within [fb_top, fb_bot]; if above fb_top (transitioning to water), only clamp the bottom. Added three helpers: _is_on_far_bank() (tile-based: checks tile_map[col][row] == BANK and row >= bottom_bank_profile), _far_bank_top_y(), _far_bank_bottom_y(). Replaced the horizontal movement's ad-hoc far bank heuristic with the proper _is_on_far_bank() call. Changed far bank UP movement to uncapped (position.y -= BANK_SPEED * delta) so the angler can cross past the bank edge into water.
+Rationale: The snap function exists for horizontal curve tracking — when walking left/right along the bank, the bank profile changes per column, so y must adjust. But it was also preventing vertical bank-to-water transitions because the tile at the transition position was still BANK (the angler needs to move ~16px past the edge to reach the first water tile row). The fix separates these concerns: snap handles horizontal tracking, vertical transitions are left to the movement code and _sync_wading_state().
+Files: angler.gd (_snap_to_bank_surface, _handle_movement, _is_on_far_bank new, _far_bank_top_y new, _far_bank_bottom_y new).
+
+[6] REMOVAL OF TILE_UNDERCUT_BANK — CURVATURE-BASED BANK-EDGE DEPTH
+Problem: TILE_UNDERCUT_BANK was a placed structure that overwrote bank-edge tiles. The placement system struggled to distribute them well (random y sampling hit valid rows only 6.7% of the time), and the visual result was inconsistent — sometimes all on one bank, sometimes too sparse. More fundamentally, the mechanic was wrong: real undercut banks aren't discrete structures placed on top of the river. They're a consequence of erosion on the outside of curves — the water is naturally deeper against the bank there.
+Decision: Removed TILE_UNDERCUT_BANK from structure placement entirely (removed from counts dict, _valid_placement, _structure_w, _structure_h). Replaced with curvature-based bank-edge depth bias in _build_tile_map: centre_d (the U-shape depth parameter, 0=deep centre, 1=shallow edge) is shifted by ±curvature * 0.85 at the first/last 40% of the water column. Outside curves push bank edges from SURFACE toward MID_DEPTH or DEEP. Inside curves push toward SURFACE.
+
+Result (seed 12345): bank-edge tile distribution went from 88% Surface / 10% Mid / 0% Deep to 51% Surface / 32% Mid / 14% Deep. The effect varies by curvature — strong outside bends show [M M M] or [D M S] at the bank edge, while inside bends show [S S S]. Straight sections remain SURFACE-dominant.
+
+Also updated: species affinity scoring replaced UNDERCUT_BANK structure proximity bonus (+1.20 brown) with bank-adjacent deep water check (bank_dist <= 2 tiles and tile is DEEP or MID_DEPTH → +1.00 brown). Removed undercut hold annotation (spawn_dy snap to bank edge — fish now sit at the hold position naturally). Removed from tile legend and angler wading depth match.
+Rationale: The user identified the core issue: "insides corners of curves are shallow while the outside is undercut unless there are rocks/boulders in that area preventing it." This is erosion physics, not structure placement. The curvature-based depth bias models the actual cause. It produces continuous variation rather than discrete patches, it's deterministic from the seed, and it requires zero placement attempts. Brown trout still gravitate to these lies via the bank-adjacent depth bonus.
+Files: river_generator.gd (_build_tile_map, _place_structures, _valid_placement, _structure_w, _structure_h, _annotate_hold, _compute_species_affinity), angler.gd (removed UNDERCUT_BANK wading depth case), tile_legend.gd (removed entry).
+
+---
+
+PARSE ERRORS ENCOUNTERED AND RESOLVED
+
+[E1] "Cannot infer the type of on_far_bank" (river_generator.gd:759)
+Cause: GDScript can't infer bool from a short-circuit `and` expression where one side is an Array element comparison (returns Variant).
+Fix: Explicit type annotation: `var on_far_bank: bool = ...`
+
+[E2] "Cannot infer the type of near_bank_dist" (river_generator.gd:789)
+Cause: Ternary expression mixing int arithmetic on Variant array elements with a literal 99.
+Fix: Explicit type annotation: `var near_bank_dist: int = ...`, same for far_bank_dist.
+
+---
+
+END OF SESSION
+
+Files modified this session:
+- scripts/angler/angler.gd
+- scripts/river/river_generator.gd
+- scripts/river/river_renderer.gd
+- scripts/fish/spook_calculator.gd
+- scripts/fish/fish_ai.gd
+- scripts/river/river_constants.gd
+- scripts/river/river_data.gd
+- scripts/river/river_world.gd
+- scripts/casting/casting_controller.gd
+- scripts/casting/drift_controller.gd
+- scripts/angler/net_sampler.gd
+- scripts/catching/hookset_controller.gd
+- scripts/catching/catch_log.gd
+- scripts/autoloads/hatch_manager.gd
+- scripts/autoloads/database_manager.gd
+- scripts/ui/fly_selector.gd
+- scripts/ui/tile_legend.gd
+- scripts/main.gd
+- RIVER_ANATOMY_PLAN.md

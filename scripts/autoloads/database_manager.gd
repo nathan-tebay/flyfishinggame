@@ -12,7 +12,8 @@ var _db_open: bool = false
 func _ready() -> void:
 	# Resolve user:// to an absolute path — some godot-sqlite versions require this
 	var abs_path := ProjectSettings.globalize_path(DB_PATH)
-	print("DatabaseManager: db path = ", abs_path)
+	if OS.is_debug_build():
+		print("DatabaseManager: db path = ", abs_path)
 
 	var sqlite := SQLite.new()
 	sqlite.path = abs_path
@@ -23,7 +24,8 @@ func _ready() -> void:
 		return
 	db = sqlite
 	_db_open = true
-	print("DatabaseManager: opened OK")
+	if OS.is_debug_build():
+		print("DatabaseManager: opened OK")
 	_run_migrations()
 	_seed_defaults()
 

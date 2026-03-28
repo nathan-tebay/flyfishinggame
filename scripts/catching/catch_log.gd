@@ -27,10 +27,11 @@ func record_catch(fish: FishAI, fly_name: String, fly_stage: String) -> void:
 	}
 	catches.append(entry)
 
-	print("CatchLog: %s %.0f cm on %s | %s | %s" % [
-		species_str, size_cm, fly_name,
-		entry["hatch_state"], entry["time_of_day"],
-	])
+	if OS.is_debug_build():
+		print("CatchLog: %s %.0f cm on %s | %s | %s" % [
+			species_str, size_cm, fly_name,
+			entry["hatch_state"], entry["time_of_day"],
+		])
 
 	if GameManager.session_id >= 0:
 		DatabaseManager.save_catch(GameManager.session_id, {

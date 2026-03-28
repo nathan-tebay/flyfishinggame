@@ -1,0 +1,97 @@
+Fly Fishing Game — Implementation Session 4 Transcript
+Date: 2026-03-27
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+Far bank relocation bug, wading depth indicator, tile legend, river anatomy plan, and full implementation of river anatomy phases A–F.
+
+---
+
+DECISIONS LOG
+
+[1] FAR BANK RELOCATION BUG — TILE-AHEAD MOVEMENT CHECK
+Problem: When the angler reached the far bank after crossing a ford, pressing LEFT or RIGHT would teleport them to the middle of the river. Root cause: two-frame stale is_wading. _handle_movement() runs before _sync_wading_state(), so on the frame the angler steps onto the far bank, is_wading is still true from the previous frame. The y-clamp `position.y = minf(position.y, _max_wade_y())` then pulls them back into the water column.
+Decision: Detect far-bank territory geometrically: `not is_wading AND position.y > _near_bank_edge_y() + TILE_SIZE * 2.0`. When on the far bank, only allow horizontal movement if the destination tile is TILE_BANK or TILE_AIR (far bank tiles). Block movement at the ford edge by not updating position.x.
+Rationale: Checking the destination tile directly is independent of is_wading's stale state. It also naturally blocks the angler from walking off the far bank into unpassable water from the far side.
+Files: angler.gd (_handle_movement).
+
+[2] WADING DEPTH INDICATOR — TILE-TYPE MAPPING
+Problem: The wading depth bar stayed near-full regardless of water depth. The old formula derived depth from y-distance from the bank, not from what tile the angler was actually standing in. A shallow section and a deep pool at the same y-distance from the bank showed the same depth reading.
+Decision: Read the tile type at the angler's current (col, row) from river_data.tile_map. Map tile types to fixed depth fractions: TILE_SURFACE=0.25, MID_DEPTH=0.60, TILE_DEEP=1.00, TILE_RIVERBED=0.85, TILE_WEED_BED=0.30, TILE_GRAVEL_BAR=0.30, TILE_ROCK=0.50, TILE_BOULDER=0.55, TILE_UNDERCUT_BANK=0.15. Also use tile type as the ground truth for is_wading.
+Rationale: The tile type IS the depth model. The y-position is just a rendering artifact — two different sections at the same y can have completely different tile types because the banks curve. Only the tile is authoritative.
+Files: angler.gd (_sync_wading_state).
+
+[3] TILE TYPE LEGEND — F1 TOGGLE OVERLAY
+Decision: Added TileLegend as a CanvasLayer-based debug overlay, toggled with F1. Shows all tile types with a color swatch and one-line description. Uses the _node.draw.connect(_on_draw) pattern with a child Node2D for _draw() calls (same pattern as CastTargetOverlay). Declared untyped (var _tile_legend) in river_world.gd due to the Godot 4.3 class_name registry issue on cold-start compilation.
+Rationale: With habitat classification and hold score debugging, being able to visually identify tile types by color is essential. The existing comma-key hold score overlay becomes much more useful alongside it.
+Files: scripts/ui/tile_legend.gd (new), river_world.gd (_TileLegendScript preload, _tile_legend, F1 input handling).
+
+[4] RIVER ANATOMY RESEARCH — PLAN DOCUMENT
+Decision: Before implementing any changes, researched real river anatomy (pool-riffle-run cycles, 5–7 channel-width pool spacing, pool zone structure, V-seam hydrodynamics, species habitat preferences) and encoded the results into RIVER_ANATOMY_PLAN.md as a six-phase dependency-ordered implementation plan.
+Rationale: The procedural river was generating plausible-looking water but fish placement was ecologically arbitrary. A phased plan lets each session deliver incremental gameplay value and keeps the implementation bounded by token budget. The plan document survives session boundaries.
+Files: RIVER_ANATOMY_PLAN.md (new).
+
+[5] PHASE A — RIVERDATA FIELDS + HABITAT CLASSIFICATION
+Decision: Added habitat_type[] and exposure_factor[] arrays to RiverData. Added seven HABITAT_* constants to RiverConstants. Added _classify_habitat() (two-pass pool zone detection, riffle/run/ford by depth thresholds) and _classify_pocket_water() (labels 4-tile downstream window of ROCK/BOULDER structures as HABITAT_POCKET, reduces exposure 0.2) to RiverGenerator. Both called from generate() after _inject_ford_sections() and before _build_tile_map().
+Rationale: habitat_type and exposure_factor are derived from depth_profile and structure placement. They must be computed from the final profile (after fords are injected) but before tile rendering. All downstream phases (B–E) read these arrays — they are the foundation.
+Files: river_constants.gd, river_data.gd, river_generator.gd.
+
+[6] PHASE B — BELL CURVE HOLD SCORING + HABITAT WEIGHTING
+Decision: Replaced linear current scoring in _calculate_hold_scores() with a Gaussian bell curve peaking at current=0.60: `exp(-pow((current_val - 0.60) / 0.35, 2.0))`. Added habitat-adjusted depth multiplier (POOL_BELLY×1.2, RIFFLE×0.5, POOL_HEAD/TAIL×0.9, else×0.8) and habitat_sc additive term (POOL_BELLY+0.40, POCKET+0.30, POOL_TAIL+0.25, POOL_HEAD+0.15, RUN+0.10, RIFFLE−0.10, FORD−0.50). Raised min_score threshold 1.5→1.8. Depth multiplier hoisted before the inner y-loop to avoid repeated per-tile lookup.
+Rationale: Fish prefer a moderate current — neither still eddy nor full-torrent. The bell curve captures this. The habitat_sc term encodes ecological reality directly: pool bellies and pocket water are prime lies; fords are not. The score increase requires raising the threshold to prevent too many marginal holds qualifying.
+Files: river_generator.gd (_calculate_hold_scores, _find_top_holds).
+
+[7] PHASE C — POOL-RIFFLE-RUN DEPTH CYCLE
+Decision: Reduced noise amplitude to `normalized * 0.35 + 0.40` (was 0.80+0.20) so it contributes texture rather than shape. Added _apply_pool_riffle_template() called after noise, before ford injection. Pools placed every 100–140 tiles with ±20 jitter; first pool centre in [80,140]. Per pool: belly ±15 tiles (depth 0.06–0.12), head 15–30 tiles upstream (cosine ramp to belly), tailout 15–35 tiles downstream (cosine ramp from belly to 0.70). Riffle (depth 0.78–0.90, 15–25 tiles) injected at midpoint between pools with 4-tile cosine taper. Ford columns protected: template values not written where depth_profile[x] < 0.12.
+Rationale: Pure noise has no intentional structure — it generates random variation without the systematic pool-riffle cycle that characterises real rivers. The template writes deterministic large-scale shape; the noise provides fine texture on top. This gives the river a visual rhythm that is immediately recognisable and ecologically meaningful. Same seed → same layout.
+Files: river_generator.gd (_generate_depth_profile, _apply_pool_riffle_template new, generate call order).
+
+[8] PHASE D — V-SEAM SPAWN OFFSETS + SPECIES AFFINITY
+Decision: In _find_top_holds(), call _annotate_hold() for each candidate. _annotate_hold() adds spawn_dx (tile offset downstream into V-seam when BOULDER/ROCK within 6 tiles upstream, = structure.w * 2), spawn_dy (bank-edge snap for UNDERCUT_BANK within 3 tiles), best_species (int from _compute_species_affinity()), and exposure (copied from data.exposure_factor[hx]). _compute_species_affinity() scores species 0/1/2 by habitat type and nearby structures: browns weight toward boulders/undercuts/pool belly; rainbows toward riffles/gravel bars/weed beds; whitefish toward gravel bars/riffles. In river_world.gd _spawn_section_fish(): apply spawn_dx/spawn_dy when computing world position, use 65% best_species / 35% random baseline.
+Rationale: V-seam lies are downstream of the obstruction, not on it. Without spawn offsets, fish spawned on top of boulders. The 65/35 species split preserves the randomness of discovery while being statistically correct — you expect to find browns at undercut banks, not as a guaranteed rule but as a strong tendency.
+Files: river_generator.gd (_find_top_holds, _annotate_hold new, _compute_species_affinity new), river_world.gd (_spawn_section_fish).
+
+[9] PHASE E — EXPOSURE-BASED SPOOK SENSITIVITY
+Decision: Added exposure_factor: float = 0.5 parameter to SpookCalculator.calculate() and is_within_radius() (default 0.5 = neutral). Incorporated as exposure_mod = lerpf(0.70, 1.25, exposure_factor) multiplied into directional_r. Added var exposure_factor: float = 0.5 public property to FishAI, passed to SpookCalculator.calculate() in _check_angler(). Added fish.exposure_factor = hold.get("exposure", 0.5) in river_world._spawn_section_fish().
+Rationale: Exposed fish (tailout, riffle) are easier to spook — they have less overhead cover and more visual range on the near bank. Sheltered fish (deep pool belly) are harder to spook. The lerpf range 0.70–1.25 gives a ×1.79 difference between maximum shelter and maximum exposure — large enough to be gameplay-meaningful, not so large as to make pool fish unkookable.
+Files: spook_calculator.gd (calculate, is_within_radius), fish_ai.gd (exposure_factor property, _check_angler call), river_world.gd (_spawn_section_fish).
+
+[10] PHASE F — FOAM LINE VISUAL
+Decision: Added _foam_lines: Array to RiverRenderer. _build_foam_lines(data) samples every 2nd column across all water rows, computes lateral current gradient (|current[x+1][y] - current[x-1][y]|), and records anchors with seam_strength > 0.25. Subsamples to max 150 anchors via in-place Fisher-Yates shuffle using seeded RNG. _draw_foam_lines() animates each anchor: primary dot drifts downstream at drift_speed × 40 px/s, two secondary dots ±4 px vertically at half alpha. Dot radius lerpf(1.5, 3.5, seam_width), alpha = seam_width × 0.55.
+Rationale: "Foam is home" — foam lines are how experienced fly fishers identify the seams where food concentrates. Making them visible gives the player a visual cue that matches what a real angler reads. Capped at 150 anchors to stay well within the 300-ripple performance baseline. Seam detection from lateral gradient (not raw current value) correctly highlights the transition zones, not the fast water itself.
+Files: river_renderer.gd (_foam_lines member, _build_foam_lines new, _draw_foam_lines new, render, _draw).
+
+---
+
+PARSE ERRORS ENCOUNTERED AND RESOLVED
+
+[E1] "Cannot infer type of depth_sc" (Phase B)
+Cause: data.depth_profile[x] returns Variant, not float. GDScript cannot infer float arithmetic from Variant.
+Fix: Explicit cast: `var depth_sc: float = (data.depth_profile[x] as float) * depth_mult`
+
+[E2] "Duplicate match arm TILE_BOULDER" (Phase D)
+Cause: Copy-paste error in _compute_species_affinity() — TILE_BOULDER arm appeared twice in the match block.
+Fix: Removed the duplicate arm.
+
+---
+
+END OF SESSION
+
+Files modified this session:
+- scripts/angler/angler.gd
+- scripts/ui/tile_legend.gd (new)
+- scripts/river/river_world.gd
+- scripts/river/river_constants.gd
+- scripts/river/river_data.gd
+- scripts/river/river_generator.gd
+- scripts/fish/spook_calculator.gd
+- scripts/fish/fish_ai.gd
+- scripts/river/river_renderer.gd
+- RIVER_ANATOMY_PLAN.md (new)

@@ -32,7 +32,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if Input.is_action_just_pressed("swap_fly"):
 		active_fly = (active_fly + 1) % FLIES.size()
-		print("FlySelector: %s (%s)" % [fly_name(), fly_stage()])
+		if OS.is_debug_build():
+			print("FlySelector: %s (%s)" % [fly_name(), fly_stage()])
 		queue_redraw()
 
 

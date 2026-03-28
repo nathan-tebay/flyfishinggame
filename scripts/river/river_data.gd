@@ -25,6 +25,14 @@ var tile_map: Array = []
 # hold_scores[x][y] = float  (higher = better fish holding spot)
 var hold_scores: Array = []
 
+# habitat_type[x] = RiverConstants.HABITAT_* int — per-column habitat classification.
+# Set by RiverGenerator._classify_habitat() after depth profile is finalised.
+var habitat_type: Array = []
+
+# exposure_factor[x] = 0.0 (sheltered) .. 1.0 (fully exposed) — drives spook radius
+# scaling in SpookCalculator. Tailout/ford/riffle = high; pool belly = low.
+var exposure_factor: Array = []
+
 # structures: Array of Dictionaries
 #   { type:int, x:int, y:int, w:int, h:int, cover:float, hatch:float }
 var structures: Array = []

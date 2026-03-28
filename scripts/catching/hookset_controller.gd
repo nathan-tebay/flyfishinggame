@@ -38,7 +38,8 @@ func on_drift_started() -> void:
 	_is_nymph = fly_selector != null and not fly_selector.is_dry_fly()
 	_state    = HookState.WATCHING
 	_spawn_indicator()
-	print("HooksetController: watching | %s" % ("nymph indicator" if _is_nymph else "dry fly"))
+	if OS.is_debug_build():
+		print("HooksetController: watching | %s" % ("nymph indicator" if _is_nymph else "dry fly"))
 
 
 func on_drift_ended() -> void:
@@ -57,8 +58,9 @@ func on_fish_take(fish: FishAI) -> void:
 	if _indicator:
 		_indicator.visible = true
 		_indicator.start_take(_is_nymph)
-	var cue := "DRY — RISE! SPLASH!" if not _is_nymph else "NYMPH — indicator dipping!"
-	print("HooksetController: %s  (%.2fs pre-take)" % [cue, PRE_TAKE_DUR])
+	if OS.is_debug_build():
+		var cue := "DRY — RISE! SPLASH!" if not _is_nymph else "NYMPH — indicator dipping!"
+		print("HooksetController: %s  (%.2fs pre-take)" % [cue, PRE_TAKE_DUR])
 
 
 func reset() -> void:
@@ -76,7 +78,8 @@ func _process(delta: float) -> void:
 			_drift_indicator(delta)
 			_timer -= delta
 			if Input.is_action_just_pressed("hookset"):
-				print("HooksetController: TOO EARLY — hard spook!")
+				if OS.is_debug_build():
+					print("HooksetController: TOO EARLY — hard spook!")
 				if _taking_fish:
 					hard_spook.emit(_taking_fish)
 				_reset()
@@ -86,12 +89,14 @@ func _process(delta: float) -> void:
 		HookState.STRIKE_OPEN:
 			_timer -= delta
 			if Input.is_action_just_pressed("hookset"):
-				print("HooksetController: HOOKSET — catch confirmed!")
+				if OS.is_debug_build():
+					print("HooksetController: HOOKSET — catch confirmed!")
 				if _taking_fish:
 					catch_confirmed.emit(_taking_fish)
 				_reset()
 			elif _timer <= 0.0:
-				print("HooksetController: too late — fish spit the fly, returns to feeding")
+				if OS.is_debug_build():
+					print("HooksetController: too late — fish spit the fly, returns to feeding")
 				if _taking_fish:
 					miss_late.emit(_taking_fish)
 				_reset()
@@ -103,13 +108,15 @@ func _drift_indicator(delta: float) -> void:
 
 
 func _handle_early_hookset() -> void:
-	print("HooksetController: hookset while drifting — no fish on the line")
+	if OS.is_debug_build():
+		print("HooksetController: hookset while drifting — no fish on the line")
 
 
 func _open_strike_window() -> void:
 	_state = HookState.STRIKE_OPEN
 	_timer = GameManager.difficulty.hookset_window_duration
-	print("HooksetController: STRIKE WINDOW OPEN (%.1fs) — press Space/A!" % _timer)
+	if OS.is_debug_build():
+		print("HooksetController: STRIKE WINDOW OPEN (%.1fs) — press Space/A!" % _timer)
 
 
 func _spawn_indicator() -> void:

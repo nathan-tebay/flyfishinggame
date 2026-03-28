@@ -31,6 +31,7 @@ const _SIZE_MULTIPLIERS := {
 #   fish_pos                — world position of fish
 #   is_wading               — whether angler is in the water
 #   angler_speed_normalized — 0.0 = standing still, 1.0 = full-speed movement
+#   exposure_factor         — 0.0 (sheltered pool belly) .. 1.0 (exposed tailout/riffle)
 static func calculate(
 	config: DifficultyConfig,
 	fish_size: int,
@@ -38,14 +39,17 @@ static func calculate(
 	angler_pos: Vector2,
 	fish_pos: Vector2,
 	is_wading: bool,
-	angler_speed_normalized: float
+	angler_speed_normalized: float,
+	exposure_factor: float = 0.5
 ) -> float:
-	var size_mult := _SIZE_MULTIPLIERS.get(fish_size, 1.0) as float
-	var cover_mod := 1.0 - config.deep_cover_reduction * clampf(cover_value, 0.0, 1.0)
-	var time_mod  := _time_modifier(config)
-	var approach  := _approach_modifier(angler_pos, fish_pos, config)
+	var size_mult    := _SIZE_MULTIPLIERS.get(fish_size, 1.0) as float
+	var cover_mod    := 1.0 - config.deep_cover_reduction * clampf(cover_value, 0.0, 1.0)
+	var time_mod     := _time_modifier(config)
+	var approach     := _approach_modifier(angler_pos, fish_pos, config)
+	# Exposed fish (tailout, riffle) are more wary; sheltered fish (pool belly) less so.
+	var exposure_mod := lerpf(0.70, 1.25, clampf(exposure_factor, 0.0, 1.0))
 
-	var directional_r := config.base_spook_radius * size_mult * cover_mod * time_mod * approach
+	var directional_r := config.base_spook_radius * size_mult * cover_mod * time_mod * approach * exposure_mod
 
 	# Wading vibration — omnidirectional, does not use approach modifier.
 	# This is what reduces blind spot advantage when wading quickly.
@@ -64,12 +68,14 @@ static func is_within_radius(
 	angler_pos: Vector2,
 	fish_pos: Vector2,
 	is_wading: bool,
-	angler_speed_normalized: float
+	angler_speed_normalized: float,
+	exposure_factor: float = 0.5
 ) -> bool:
 	var r := calculate(
 		config, fish_size, cover_value,
 		angler_pos, fish_pos,
-		is_wading, angler_speed_normalized
+		is_wading, angler_speed_normalized,
+		exposure_factor
 	)
 	return angler_pos.distance_to(fish_pos) <= r
 

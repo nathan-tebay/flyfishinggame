@@ -1,0 +1,126 @@
+Building a Fly Fishing Game, Part 4: Teaching the River to Think
+
+The previous session ended with a crossable river. The far bank was reachable, sections streamed in correctly, and the basic gameplay loop — cast, drift, hookset, catch — was fully connected. But the river still didn't know anything about itself. Fish spawned at arbitrary hold scores. Every species had an equal chance of appearing anywhere. A pool belly and a tailout were identical from the fish's perspective. This session changed that.
+
+---
+
+Two Small Bugs First
+
+Before any of the interesting work, two bugs from the last session needed fixing.
+
+The first: after crossing to the far bank, pressing left or right would teleport the angler back into the middle of the river. The root cause was a timing issue in the processing order. The movement function runs before the wading-state sync function. So on the frame the angler steps onto the far bank, `is_wading` is still true from the previous frame. The y-clamp that keeps wading anglers from sinking then fires and pulls them back into the water.
+
+The fix was to stop relying on `is_wading` for the far-bank check. Instead, detect far-bank territory geometrically — if the angler is not wading and their y-position is more than two tiles below the near bank edge — and check the destination tile directly before allowing horizontal movement. If the tile ahead is far-bank terrain, allow it. If it's water, block it. No stale state involved.
+
+The second bug: the wading depth bar stayed nearly full regardless of how deep the water actually was. The old formula computed depth from y-distance to the bank. But the banks curve per column, so the same y-position can be shallow in one section and deep in another. The fix was to read the tile type at the angler's current position and map it to a fixed depth fraction. TILE_SURFACE is 25% deep. MID_DEPTH is 60%. TILE_DEEP is 100%. The tile is the ground truth — the y-position is just a rendering artifact.
+
+---
+
+The Tile Legend
+
+I added a debug overlay (F1 key) showing every tile type with its color swatch and description. This sounds trivial but it's genuinely useful. When you're looking at a river and trying to understand why fish are or aren't appearing somewhere, you need to know what you're looking at. Gravel bar, weed bed, rock, undercut bank — they all look slightly different but without a legend you're guessing.
+
+---
+
+River Anatomy Research
+
+Before writing any generation code, I spent time reading about real river hydraulics. The key things I wanted to capture:
+
+Pools form where the river loses energy — on the outside of bends, downstream of obstructions, anywhere the valley widens. They're typically 5–7 channel widths apart. Each pool has three zones: a head (the plunge where fast water enters), a belly (the deep slow centre), and a tail (the gradual shallowing exit). Each zone holds different fish for different reasons.
+
+Riffles sit between pools. Shallow, fast, broken water. The invertebrate factory of the river. Fish don't hold here as their primary lie, but they'll slide into a riffle to feed during a heavy hatch.
+
+Runs are the transition water — moderate depth and speed, not as dramatic as either pools or riffles. Most of the wadeable river is run. Productive all day.
+
+V-seams form downstream of boulders and rocks. The obstruction deflects current on both sides, creating a low-pressure zone immediately behind it and a narrow wedge of slower water extending downstream. Fish sit in the wedge, facing upstream, letting the current deliver food directly to them.
+
+Undercut banks are the brown trout's preferred address. Overhanging soil provides cover from above, the undercut holds their body out of the main current, and the bank edge is usually a seam between fast and slow water.
+
+All of this got encoded into a plan document — six phases, dependency-ordered, each with a testable condition.
+
+---
+
+Phase A: Foundation
+
+The river data model needed two new arrays: `habitat_type[]` (pool head/belly/tail, run, riffle, ford, pocket water — per column) and `exposure_factor[]` (0.0 to 1.0 — how visible is a fish holding here to a near-bank angler).
+
+Habitat classification reads the final depth profile after all modifications. Columns below depth 0.12 are ford. Columns above 0.72 are riffle. The range between is run. Pool zones are identified by finding contiguous stretches of low depth values and then sub-classifying the first 8 tiles as pool head, the middle as belly, and the last 10 as tail.
+
+Pocket water is a second pass: find every rock or boulder structure, label the 4-tile downstream window as habitat pocket, reduce exposure there by 0.2 (the structure provides cover).
+
+This phase produces no visible change. It just fills arrays that everything downstream reads.
+
+---
+
+Phase B: Hold Scoring That Understands Fish
+
+The old hold scoring used a linear current multiplier. Fast water scored worse, slow water scored better. This is correct in direction but wrong in shape. Fish don't prefer the slowest possible current — they prefer a moderate current that delivers food without requiring them to fight it. The sweet spot is around 0.6 on the 0-to-1 scale.
+
+Replaced the linear multiplier with a Gaussian bell curve peaking at 0.6. The same total current value now produces a higher score at the ecological optimum than it did before.
+
+Added a habitat score term: pool belly gets +0.40, pocket water +0.30, pool tail +0.25, pool head +0.15, run +0.10, riffle −0.10, ford −0.50. These numbers aren't magic — they encode the simple truth that some water holds fish and some doesn't, weighted by how reliably it does.
+
+The minimum qualifying score raised from 1.5 to 1.8 to keep the candidate list tight.
+
+---
+
+Phase C: A River That Looks Like a River
+
+This was the most visible change of the session.
+
+The depth profile before was pure noise — a FastNoiseLite output normalized into a 0-to-1 range. This produced plausible local variation but no large-scale structure. Every stretch looked roughly the same. There was no rhythm.
+
+The fix: reduce the noise amplitude so it's a texture layer rather than the shape layer, then write explicit pool and riffle shapes on top using cosine interpolation.
+
+Pools are placed every 100–140 tiles with a bit of jitter. The belly is a 30-tile zone at depth 0.06–0.12 (deep, slow). The head ramps sharply from run depth down to belly depth over 30 tiles upstream. The tail ramps gradually from belly back up to run depth over 35 tiles downstream. Between pools, a riffle is injected at the midpoint — a 15–25 tile zone at depth 0.78–0.90 (shallow, fast), with a 4-tile cosine taper on each side so it doesn't cliff-edge into the adjacent run.
+
+Fords are protected. If a column was already set to ford depth by the ford injection pass, the template doesn't overwrite it.
+
+The visual result is immediate. Dark blue pools separated by wide light-blue riffles. The pool-riffle rhythm is visible just from panning across a section. Same seed gives the same layout.
+
+---
+
+Phase D: Fish in the Right Place
+
+Two separate problems with fish placement.
+
+First, fish were spawning on top of boulders. The hold score correctly identified the downstream V-seam as prime water, but the spawn coordinates were at the hold tile — which might be mid-boulder. Fixed by computing a spawn offset: if there's a rock or boulder within 6 tiles upstream of the hold, push the spawn point `structure.width × 2` tiles downstream into the seam. If there's an undercut bank within 3 tiles, snap the y-coordinate to the water row at the bank edge.
+
+Second, species were assigned randomly. Any fish at any hold had equal odds of being a brown trout, rainbow, or whitefish. The river had ecologically differentiated habitat — pools, riffles, boulders, gravel bars — but species were ignoring it.
+
+Fixed by computing a species affinity score per hold, based on nearby structures and habitat type:
+- Browns weight toward boulders, undercut banks, pool bellies
+- Rainbows weight toward riffles, gravel bars, weed beds, pool tails
+- Whitefish weight toward gravel bars and riffles
+
+The highest scorer becomes the "preferred" species. When spawning, there's a 65% chance of placing the preferred species and a 35% chance of random assignment. This preserves discovery — you're not guaranteed to find a brown at an undercut bank — but statistically the distribution is correct.
+
+---
+
+Phase E: Exposed Fish Are Nervous Fish
+
+A fish holding in a deep pool belly has overhead cover, depth concealment, and limited sight lines to the bank. A fish feeding in a tailout has none of those things — it's in a foot of water, clearly visible, aware of everything on the near bank.
+
+This difference is now modelled. Each hold carries an exposure factor (0.0 = maximum shelter, 1.0 = maximum exposure) computed during habitat classification. Pool bellies get 0.15. Tailouts get 0.70. Riffles and fords get 0.85–1.0.
+
+The exposure factor scales into `SpookCalculator.calculate()` as a multiplier on the directional spook radius: `lerpf(0.70, 1.25, exposure_factor)`. At maximum shelter the fish's effective spook radius is 30% smaller than baseline. At maximum exposure it's 25% larger. The same cast, same approach angle, same distance — but the tailout fish spooks and the pool belly fish doesn't.
+
+---
+
+Phase F: Foam Is Home
+
+The last change was purely visual but adds a layer of ecological information that experienced fly fishers use constantly.
+
+Foam lines form where fast water meets slow water — the seam is a boundary where surface debris (including insects) concentrates. "Foam is home" is a standard instruction to beginners: find the foam line, fish it.
+
+The renderer now detects current seams by computing the lateral gradient across adjacent columns. Where the gradient exceeds 0.25, it places a foam anchor. At runtime, each anchor draws a small white dot that drifts downstream at a speed proportional to local current, plus two secondary dots ±4 pixels vertically at half alpha — a suggestion of a line rather than a single point. Capped at 150 anchors per section, selected randomly from all qualifying positions.
+
+The result is subtle white streaks drifting along the visible seams between fast and slow water. They appear at pool entries, at the downstream edge of riffles, and around rocks and boulders. They don't announce themselves. But if you know what you're looking for, they tell you where to cast.
+
+---
+
+Where Things Stand
+
+The river now has intentional structure. Pools form, riffles separate them, fish hold in ecologically appropriate lies. Browns cluster at undercut banks and boulders. Rainbows show up at gravel bars and in the riffles. Foam drifts along the seams. A tailout fish is genuinely more alert than a pool fish holding three feet of dark water over its back.
+
+The core gameplay loop is complete and ecologically grounded. The next work is probably polish — visual refinements, audio, or additional fly patterns — or starting to build toward a proper release.

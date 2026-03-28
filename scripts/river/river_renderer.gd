@@ -16,6 +16,9 @@ var _ripples: Array = []
 # Grid-sampled flow arrows: { wx, wy, speed }
 var _arrows: Array = []
 
+# Foam line anchors along current seams: { wx, wy, drift_speed, phase, seam_width }
+var _foam_lines: Array = []
+
 
 # Call once before first render — idempotent.
 func build_tileset() -> void:
@@ -53,6 +56,7 @@ func render(data: RiverData) -> void:
 	_river_data = data
 	_build_ripples(data)
 	_build_arrows(data)
+	_build_foam_lines(data)
 
 
 func show_hold_debug(data: RiverData, top_n: int = 30) -> void:
@@ -84,6 +88,7 @@ func _draw() -> void:
 		return
 	_draw_ripples()
 	_draw_arrows()
+	_draw_foam_lines()
 
 
 func _build_ripples(data: RiverData) -> void:
@@ -140,6 +145,69 @@ func _draw_ripples() -> void:
 		# Faint trailing arm for depth
 		draw_line(Vector2(wx - sz * 0.6, wy - sz * 0.30), Vector2(wx, wy), col * Color(1,1,1,0.5), 0.8)
 		draw_line(Vector2(wx - sz * 0.6, wy + sz * 0.30), Vector2(wx, wy), col * Color(1,1,1,0.5), 0.8)
+
+
+func _build_foam_lines(data: RiverData) -> void:
+	_foam_lines.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = data.seed ^ 0xF0A1B2C3
+	var ts := float(RiverConstants.TILE_SIZE)
+	const MAX_ANCHORS := 150
+
+	var candidates: Array = []
+	# Sample every 2nd column, every water row
+	for tx in range(1, data.width - 1, 2):
+		for ty in range(RiverConstants.BANK_H_TILES, data.height - 1):
+			var tile: int = data.tile_map[tx][ty]
+			if tile != RiverConstants.TILE_SURFACE and \
+			   tile != RiverConstants.TILE_MID_DEPTH and \
+			   tile != RiverConstants.TILE_DEEP:
+				continue
+			var cur_l: float = data.current_map[tx - 1][ty]
+			var cur_r: float = data.current_map[tx + 1][ty]
+			var seam_strength: float = abs(cur_r - cur_l)
+			if seam_strength > 0.25:
+				candidates.append({
+					"wx":          float(tx) * ts + ts * 0.5,
+					"wy":          float(ty) * ts + ts * 0.5,
+					"drift_speed": data.current_map[tx][ty],
+					"phase":       rng.randf() * TAU,
+					"seam_width":  seam_strength,
+				})
+
+	# Randomly subsample down to cap
+	if candidates.size() > MAX_ANCHORS:
+		for i in candidates.size():
+			var j := rng.randi_range(i, candidates.size() - 1)
+			var tmp: Dictionary = candidates[i]
+			candidates[i] = candidates[j]
+			candidates[j] = tmp
+		candidates.resize(MAX_ANCHORS)
+
+	_foam_lines = candidates
+
+
+func _draw_foam_lines() -> void:
+	const DRIFT_RANGE := 24.0  # pixels per animation loop
+	for f in _foam_lines:
+		var fd: Dictionary      = f
+		var drift: float        = fd["drift_speed"]
+		var phase: float        = fd["phase"]
+		var base_x: float       = fd["wx"]
+		var wy: float           = fd["wy"]
+		var seam_w: float       = fd["seam_width"]
+
+		var offset: float = fmod(_time * drift * 40.0 + phase * 16.0, DRIFT_RANGE)
+		var wx: float     = base_x + offset
+
+		var alpha  := seam_w * 0.55
+		var radius := lerpf(1.5, 3.5, seam_w)
+		var col    := Color(1.0, 1.0, 1.0, alpha)
+
+		draw_circle(Vector2(wx, wy), radius, col)
+		# Two secondary dots ±4 px vertically at half alpha for foam line suggestion
+		draw_circle(Vector2(wx, wy - 4.0), radius * 0.65, Color(1.0, 1.0, 1.0, alpha * 0.5))
+		draw_circle(Vector2(wx, wy + 4.0), radius * 0.65, Color(1.0, 1.0, 1.0, alpha * 0.5))
 
 
 func _build_arrows(data: RiverData) -> void:

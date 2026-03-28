@@ -22,7 +22,8 @@ var _timer:      float = 0.0
 
 func on_standing_still() -> void:
 	_can_sample = true
-	print("NetSampler: standing still — press N to sample")
+	if OS.is_debug_build():
+		print("NetSampler: standing still — press N to sample")
 
 
 func _process(delta: float) -> void:
@@ -48,25 +49,28 @@ func _process(delta: float) -> void:
 func _start() -> void:
 	_sampling = true
 	_timer    = SAMPLE_DURATION
-	print("NetSampler: sampling... (%.0f s)" % SAMPLE_DURATION)
+	if OS.is_debug_build():
+		print("NetSampler: sampling... (%.0f s)" % SAMPLE_DURATION)
 
 
 func _cancel() -> void:
 	_sampling = false
 	_timer    = 0.0
-	print("NetSampler: cancelled — must stand still")
+	if OS.is_debug_build():
+		print("NetSampler: cancelled — must stand still")
 
 
 func _finish() -> void:
 	_sampling   = false
 	_can_sample = false   # must stand still again for next sample
 	var results: Array = _compute_results()
-	print("NetSampler: complete — %d insect type(s)" % results.size())
-	for entry in results:
-		var e: Dictionary = entry
-		print("  %s %s @ %s: %.0f%%" % [
-			e["stage"], e["species"], e["depth_layer"], e["abundance"] * 100.0
-		])
+	if OS.is_debug_build():
+		print("NetSampler: complete — %d insect type(s)" % results.size())
+		for entry in results:
+			var e: Dictionary = entry
+			print("  %s %s @ %s: %.0f%%" % [
+				e["stage"], e["species"], e["depth_layer"], e["abundance"] * 100.0
+			])
 	sample_complete.emit(results)
 
 

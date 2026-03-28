@@ -26,7 +26,8 @@ func on_drift_started() -> void:
 	_drifting   = true
 	drag_factor = 0.0
 	drag_changed.emit(drag_factor)
-	print("DriftController: drift started")
+	if OS.is_debug_build():
+		print("DriftController: drift started")
 
 
 func on_drift_ended() -> void:
@@ -37,5 +38,6 @@ func on_drift_ended() -> void:
 func on_mend(direction: int) -> void:
 	drag_factor = maxf(0.0, drag_factor - MEND_RESET)
 	drag_changed.emit(drag_factor)
-	var dir_name := "upstream" if direction < 0 else "downstream"
-	print("DriftController: mend %s | drag=%.2f" % [dir_name, drag_factor])
+	if OS.is_debug_build():
+		var dir_name := "upstream" if direction < 0 else "downstream"
+		print("DriftController: mend %s | drag=%.2f" % [dir_name, drag_factor])

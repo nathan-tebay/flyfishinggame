@@ -66,11 +66,13 @@ func _input(event: InputEvent) -> void:
 		if _mend_accum <= -MEND_THRESHOLD:
 			_mend_accum = 0.0
 			mend_upstream.emit()
-			print("CastingController: mend upstream")
+			if OS.is_debug_build():
+				print("CastingController: mend upstream")
 		elif _mend_accum >= MEND_THRESHOLD:
 			_mend_accum = 0.0
 			mend_downstream.emit()
-			print("CastingController: mend downstream")
+			if OS.is_debug_build():
+				print("CastingController: mend downstream")
 
 
 func _process(delta: float) -> void:
@@ -120,7 +122,8 @@ func _begin_false_casting(first_dir: int) -> void:
 	_total_strokes    = 0
 	_false_cast_count = 0
 	cast_started.emit()
-	print("CastingController: false cast started | line=%.1f tiles" % line_length)
+	if OS.is_debug_build():
+		print("CastingController: false cast started | line=%.1f tiles" % line_length)
 
 
 func _load_time() -> float:
@@ -155,8 +158,9 @@ func _process_false_casting(delta: float) -> void:
 				_finish_stroke()
 			_enter_presentation()
 		else:
-			print("CastingController: need %d more direction change(s) before releasing" % \
-				(MIN_FALSE_CASTS - _false_cast_count))
+			if OS.is_debug_build():
+				print("CastingController: need %d more direction change(s) before releasing" % \
+					(MIN_FALSE_CASTS - _false_cast_count))
 
 
 func _finish_stroke() -> void:
@@ -172,10 +176,11 @@ func _finish_stroke() -> void:
 	var good := _stroke_timer >= lo and _stroke_timer <= hi
 	if good:
 		_good_strokes += 1
-	print("CastingController: stroke %d | timer=%.2fs window=%.2f-%.2f  %s" % [
-		_false_cast_count, _stroke_timer, lo, hi,
-		"GOOD" if good else "MISS"
-	])
+	if OS.is_debug_build():
+		print("CastingController: stroke %d | timer=%.2fs window=%.2f-%.2f  %s" % [
+			_false_cast_count, _stroke_timer, lo, hi,
+			"GOOD" if good else "MISS"
+		])
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +209,10 @@ func _enter_result() -> void:
 	_target_x += rng.randf_range(-base_scatter, base_scatter)
 	_target_y += rng.randf_range(-base_scatter * 0.25, base_scatter * 0.25)
 	var names    := ["TIGHT", "SLOPPY", "BAD"]
-	print("CastingController: result = %s | line=%.1f tiles | target_x=%.0f" % [
-		names[cast_quality], line_length, _target_x
-	])
+	if OS.is_debug_build():
+		print("CastingController: result = %s | line=%.1f tiles | target_x=%.0f" % [
+			names[cast_quality], line_length, _target_x
+		])
 	cast_result.emit(cast_quality, _target_x, _target_y)
 
 
@@ -245,14 +251,16 @@ func _enter_drift() -> void:
 	state       = State.DRIFT
 	_mend_accum = 0.0
 	drift_started.emit()
-	print("CastingController: drift started | mouse to mend | R to retrieve")
+	if OS.is_debug_build():
+		print("CastingController: drift started | mouse to mend | R to retrieve")
 
 
 func _process_drift() -> void:
 	if Input.is_action_just_pressed("strip_line"):
 		state = State.IDLE
 		drift_ended.emit()
-		print("CastingController: line retrieved")
+		if OS.is_debug_build():
+			print("CastingController: line retrieved")
 
 
 # ---------------------------------------------------------------------------

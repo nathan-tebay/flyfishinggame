@@ -1,0 +1,81 @@
+Building a Fly Fishing Game, Part 5: Rivers Curve for a Reason
+
+The last session gave the river intentional structure — pools, riffles, foam lines, ecologically placed fish. This session turned the focus to what was wrong underneath: the banks didn't behave like real banks, the angler couldn't walk properly, and a whole tile type was modelling the wrong thing.
+
+---
+
+The Cleanup Pass
+
+Before any of the interesting work, two housekeeping passes across the codebase.
+
+First, a debug print audit. The project convention is that every print() call must be wrapped with `if OS.is_debug_build():` — release builds should produce zero console output. Thirty calls across nine files had slipped through. Casting controller, drift controller, hookset controller, net sampler, hatch manager, catch log, database manager, fly selector, main scene. All wrapped.
+
+Second, a Variant cast audit. GDScript arrays return Variant when you index them. If you try to do arithmetic on the result in a typed context, the compiler refuses to infer the type. Three places in the fish AI were hitting this: current map lookups and a depth profile read. Fixed with explicit `as float` casts.
+
+Neither of these changes affects gameplay. But they're the kind of debt that compounds if left alone.
+
+---
+
+Plan vs Reality
+
+I audited the RIVER_ANATOMY_PLAN.md against the actual code and found it had drifted. Thresholds that were supposed to be 0.22 and 0.72 were actually 0.27 and 0.68. Pool zone lengths that were supposed to have ±20% jitter were fixed constants. Pocket water used a proportional window based on structure width rather than the planned fixed 4-tile window.
+
+Every deviation was an improvement made during implementation. But the plan document didn't reflect any of them. Future sessions reading the plan would get wrong numbers. Updated it, added an implementation notes section, marked all phases complete.
+
+---
+
+Why the Banks Were Wrong
+
+The river had two independent noise sources — one for the near bank, one for the far bank. Different seeds, different frequencies. This meant the two banks curved independently. The near bank might push toward the player while the far bank simultaneously pushed away. There was no coherent meander. The river was two separate edges that happened to have water between them.
+
+Real rivers don't work this way. A meander is a single curve. Both banks follow it. When the river bends left, the near bank recedes and the far bank advances — together. The channel shifts as a unit.
+
+The fix was to replace the two independent noises with a single meander noise that drives both banks simultaneously. The meander noise shifts the river centerline up or down. A separate, higher-frequency width noise varies how wide the river is at each point. The banks curve together because they're derived from the same source.
+
+But that's only half the physics. A real meander has asymmetry: the outside of a bend erodes (the bank is steeper, thinner, undercut by the current) and the inside deposits (the bank is gentler, wider, with point bars). This is captured by computing the curvature — the derivative of the meander noise. Positive curvature means the channel is turning away from the player; negative means it's turning toward. Each bank's thickness is biased by the curvature: thinner on the outside (erosion), thicker on the inside (deposition).
+
+---
+
+Teaching the Angler to Walk
+
+Three bugs in the angler movement, all related.
+
+The first: the angler was pinned to the water's edge. The snap function that was supposed to track the bank curve during horizontal movement was also preventing any vertical freedom. Walk left, walk right — the angler slides along the bank edge. But try to walk up toward the tree line? Snapped back. The bank existed as terrain but the angler could only stand on its bottom row.
+
+The fix: the snap function now only clamps within the bank when the angler is actually in the bank area. If they've moved past the edge — down toward water, or up from the far bank — the snap doesn't interfere. It handles the horizontal tracking case (bank profile shifts per column as the player walks along a curve) without blocking the vertical transition case (deliberately entering or leaving the water).
+
+The second: pressing down on the near bank couldn't enter wading. The movement code would push position.y a few pixels past the bank edge, but the snap function would immediately pull it back. The angler never reached the first water tile row. The tile-based wading detection saw BANK, set is_wading to false, and the snap kept firing. An infinite loop at the bank edge.
+
+The fix was the same principle — don't snap back when the angler is past the edge. Let them cross the ~16 pixel gap between the last bank tile centre and the first water tile centre. Once wading state detects water, the snap stops running.
+
+The third: the far bank was a roach motel. Cross a ford, reach the far bank, and you can never leave. Pressing up capped movement at the top of the far bank tiles. The snap clamped any overshoot. Same root cause as the near bank entry bug, just mirrored.
+
+Fixed by letting the far bank UP movement go uncapped, and by making the far bank snap only clamp when the angler is within the bank tile rows — not when they've moved above them into water.
+
+All three bugs came from the snap function not understanding its own purpose. It existed for horizontal curve tracking but was applied universally, including to deliberate vertical transitions. Separating those concerns fixed all three.
+
+---
+
+Undercut Banks Were the Wrong Abstraction
+
+The original design had TILE_UNDERCUT_BANK as a structure type. Like rocks or boulders, undercuts were placed randomly during the structure pass, subject to placement rules and density multipliers. The placement rule required the tile to be at the exact bank-water boundary row.
+
+This had multiple problems. The random y coordinate only hit a valid row 6.7% of the time (2 valid rows out of 30), so most placement attempts failed. The system struggled to reach its target count. When it did place undercuts, distribution was uneven — sometimes all on one bank, sometimes clustered in one area.
+
+But the deeper problem was conceptual. An undercut bank isn't a structure placed on top of a river. It's a consequence of erosion. On the outside of a meander bend, the current pushes against the bank, carving deeper and steeper. The inside of the bend is the opposite — current slows, sediment deposits, the water is shallow against the bank.
+
+The user put it clearly: "insides corners of curves are shallow while the outside is undercut unless there are rocks/boulders in that area preventing it."
+
+So I removed TILE_UNDERCUT_BANK from the structure placement system entirely and replaced it with curvature-based bank-edge depth. The U-shaped cross-section code already computes a centre_d parameter (0 at the channel centre, 1 at the edges) that determines which depth tier each tile gets. Now that parameter is shifted based on the meander curvature at the bank edges. Outside curves push centre_d down (toward deeper tiers). Inside curves push it up (toward shallower).
+
+The effect across a section: straight stretches have the normal U-shape with shallow edges. Where the river curves, the outside bank edge transitions from Surface to Mid-Depth or even Deep, while the inside stays Surface. With seed 12345, the distribution went from 88% Surface at the bank edge to 51% Surface / 32% Mid / 14% Deep. The variation follows the meander — you can see it in the tile colours.
+
+Brown trout still gravitate to these lies. The species affinity system now checks for deep or mid-depth water within 2 tiles of either bank, giving a +1.00 brown trout affinity bonus. This replaces the old UNDERCUT_BANK structure proximity check. Same ecological outcome, correct physical cause.
+
+---
+
+Where Things Stand
+
+The river now meanders as a coherent channel. Both banks curve together. Outside bends have deeper, faster water tight against the bank — natural undercut lies without any special tile type. Inside bends have shallow edges and deposited banks. The angler can walk anywhere on either bank, enter and exit water from both sides, and cross fords in both directions.
+
+The changes are structural rather than cosmetic. The same seed produces a river that looks similar at first glance but behaves correctly when you examine the cross-section at a bend. A brown trout holding against the outside bank of a curve is now sitting in deep water that exists because the river carved it there, not because a random number generator dropped a special tile.
