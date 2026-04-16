@@ -1,0 +1,128 @@
+Fly Fishing Game — Visual Polish Session 6 Transcript
+Date: 2026-04-15
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+River renderer visual polish: contrast reduction, rock integration with water dynamics, distinct weed/gravel colour stops, flow texture, gradient green-cast fix, wider river cross-section, boulder downstream wake, fish density increase, compile error resolution, documentation update.
+
+---
+
+DECISIONS LOG
+
+[1] CONTRAST REDUCTION — REDUCE OVERALL EFFECT 25%
+Problem: The depth-field gradient was too visually intense after the Phase 8 rewrite. Depth differences read too strongly.
+Decision: Scaled all non-bank colour channel values down ~25% from their saturated peaks. Brought the deeper stops closer together in luminance to reduce the contrast between shallow and deep water.
+Rationale: Fly fishing game aesthetics favour a naturalistic look. Heavy contrast reads as a diagram rather than a river. Subtle depth cueing is more realistic and less fatiguing to look at.
+Files: river_renderer.gd (_DEPTH_STOPS).
+
+[2] ROCK VISUAL INTEGRATION — POLYGON SOFTENING
+Problem: Rock polygons appeared placed on top of the river rather than embedded in it. Hard edges and high opacity made them read as UI elements.
+Decision: Reduced rock polygon opacity (c_base alpha 0.78, c_edge alpha 0.70), lightened the drop shadow (Color(0,0,0,0.18)), thinned the outline (width=1.0 px, antialiased=true). Added an upstream water-pressure crescent — a filled wedge arc (110°–250°) in a pale blue-white (Color(0.55, 0.82, 0.96, 0.50)) drawn against the upstream face of each rock to suggest water piling against the obstruction.
+Rationale: Rocks in rivers are surrounded by visible water dynamics — bow waves upstream, disturbed water downstream. The crescent provides the upstream cue. Downstream wake is handled separately in the depth map (decision [4]).
+Files: river_renderer.gd (_build_rock_clusters, _arc_crescent new helper).
+
+[3] WEED BED AND GRAVEL BAR COLOUR STOPS — DISTINCT VISUAL IDENTITY
+Problem: Weed beds (TILE_WEED_BED) and sand/gravel bars (tiles near SURFACE depth) rendered nearly the same colour. Players couldn't distinguish bottom structure visually.
+Decision: Added explicit depth stops at rank 1.1 (warm sandy tan: Color(0.66, 0.60, 0.38)) for gravel and rank 2.4 (blue-teal: Color(0.22, 0.48, 0.60)) for weed beds. The TILE_WEED_BED depth rank (_DEPTH_RANK_F) already sits near 2.4, so the blur naturally produces coloured patches around weed tiles without hard edges.
+Rationale: Distinct bottom structure colours are ecologically meaningful — gravel bars attract spawning fish, weed beds attract invertebrates. Players reading the river should be able to identify these zones. The gradient stop approach produces organic colour patches rather than tile-boundary outlines.
+Files: river_renderer.gd (_DEPTH_STOPS, _DEPTH_RANK_F).
+
+[4] FLOW TEXTURE — TWO-FREQUENCY RIPPLE + CAUSTIC SPARKLE
+Problem: The depth-field rendering was smooth but flat. Real rivers have visible surface texture: flow bands in moving water, caustic sparkle in shallows.
+Decision: In _make_depth_tile, added two-frequency sinusoidal flow ripple bands keyed on pixel column position (j) and depth rank:
+  band1 = sin(j * 0.46 + d_avg * 2.1) * 0.5 + 0.5
+  band2 = sin(j * 0.78 + i * 0.10 + d_avg * 1.5) * 0.5 + 0.5
+Flow offset applied as a depth perturbation scaled by water_t (fades in at depth > 1.4) and attenuated in deep pools by pool_t. Added 1-in-200 random caustic sparkle pixels in shallow zones (depth < 2.5), nudging those pixels toward a bright highlight colour.
+Rationale: The bands break up the gradient monotony and suggest downstream current direction without any animation. Caustic sparkle adds the characteristic light-play of a shallow rocky stream. Both effects are baked into the static chunk textures, so there's no per-frame cost.
+Files: river_renderer.gd (_make_depth_tile).
+
+[5] GRADIENT GREEN-CAST FIX — WATERLINE AND WEED STOPS
+Problem: The transition between shallow water (depth ~1.5) and mid-depth (depth ~3.0) had a persistent green cast. Raised by the user three times across the session.
+Root cause: Intermediate depth stops had green-dominant RGB values. Bilinear interpolation between bank grass (green), waterline, and weed stops created a green band in the 1.5–2.5 range regardless of weed presence.
+Decision (iteration 1): Changed waterline stop (1.5) from Color(0.46, 0.68, 0.56) to Color(0.44, 0.76, 0.80) — shifted toward blue-teal. Changed weed stop (2.4) from Color(0.14, 0.38, 0.36) to Color(0.14, 0.38, 0.36).
+Decision (iteration 2): Weed stop too dark. Lightened to Color(0.24, 0.56, 0.50).
+Decision (iteration 3): Still too green. Changed weed stop to Color(0.22, 0.48, 0.60) — blue-dominant with reduced green component.
+Final _DEPTH_STOPS:
+  0.0  → Color(0.24, 0.52, 0.14)  bank grass
+  0.5  → Color(0.28, 0.46, 0.15)  bank edge
+  0.85 → Color(0.36, 0.37, 0.18)  wet bank / mud
+  1.1  → Color(0.66, 0.60, 0.38)  gravel bar — warm sandy tan
+  1.5  → Color(0.44, 0.76, 0.80)  waterline — blue-teal
+  2.0  → Color(0.40, 0.72, 0.84)  surface water
+  2.4  → Color(0.22, 0.48, 0.60)  weed bed — blue-teal, no green cast
+  2.7  → Color(0.28, 0.62, 0.82)  transition back to water
+  3.0  → Color(0.16, 0.48, 0.76)  mid-depth
+  3.5  → Color(0.10, 0.33, 0.64)  mid-deep
+  4.0  → Color(0.07, 0.20, 0.50)  deep channel
+Rationale: The fix required making both the waterline and weed stops blue-dominant. As long as any stop in the 1.4–2.8 range has a significant green component, interpolation from bank grass through shallow water will carry green into zones that have no ecological reason to be green.
+Files: river_renderer.gd (_DEPTH_STOPS).
+
+[6] WIDER RIVER CROSS-SECTION — MAX_DEPTH_TILES 22 → 25
+Problem: The river appeared narrower than intended. More of the screen was occupied by banks than by water.
+Decision: Increased MAX_DEPTH_TILES from 22 to 25 in river_constants.gd. Far bank now fills ALL rows from riverbed_row+1 to data.height-1 with TILE_BANK — previously TILE_AIR occupied the bottom rows of the grid, creating a visible gap at the bottom of the screen.
+Generator change: far bank tile assignment changed from `elif y < riverbed_row + bot_bank_h + 1:` (conditional on bot_bank_h) to `else:` (unconditional fill).
+Rationale: The river should occupy the majority of the visible screen. The TILE_AIR rows at the screen bottom served no purpose — they were never rendered as sky. Filling them with bank tiles extends the far bank to the screen edge, which is both more visually complete and physically correct (real rivers have continuous far banks, not floating tiles above a void).
+Files: river_constants.gd (MAX_DEPTH_TILES), river_generator.gd (_build_tile_map far bank assignment).
+
+[7] BOULDER DOWNSTREAM WAKE — 3-ZONE DEPTH MAP EFFECT
+Problem: Boulders had an upstream crescent (decision [2]) but no downstream effect. Real boulders create three distinct holding zones downstream: dead water immediately behind the boulder, side eddies flanking, and a spreading V-wake.
+Decision: In _apply_rock_effects, for boulders (not regular rocks), write three zones into the depth map before chunk bake:
+  Zone 1 — Dead water: 1–4 tiles downstream, ±2 tiles lateral, depth rank +0.60 × lateral_fade. Darkest zone; the prime holding lie directly behind the boulder.
+  Zone 2 — Side eddies: 1–7 tiles downstream, 2–4 tiles each side, depth rank +0.35 × both lateral and longitudinal fade. Reverse-current pockets flanking the dead water.
+  Zone 3 — V-wake: 5–14 tiles downstream, lateral spread = dx/3, depth rank +0.18 × spread fade. Long spreading turbulence fading back to ambient water.
+The depth rank increase maps to darker colours in _DEPTH_STOPS, so these zones are visually distinct from ambient water without any additional render pass.
+Rationale: The dead-water zone behind a boulder is the most important piece of holding water in a riffle. Fish sit there because current is minimal — they can hold position without effort while food drifts by. The visual cue trains players to target these zones. Writing the effect into the depth map rather than overlaying geometry means it interacts correctly with the blur pass and looks continuous with surrounding water.
+GDScript note: `for side in [-1, 1]` makes `side` Variant (untyped array literal). Derived integer expressions required explicit annotation: `var wy: int = ty + int(side) * dy_off` to avoid parse errors.
+Files: river_renderer.gd (_apply_rock_effects).
+
+[8] FISH DENSITY — 5× INCREASE PER SECTION
+Problem: Fish felt sparse per section with the original counts (Arcade 26, Standard 18, Sim 12). The river felt empty.
+Decision: Increased fish_per_section 5× in all DifficultyConfig factory methods:
+  Arcade: 26 → 130
+  Standard: 18 → 90
+  Sim: 12 → 60
+Default resource value updated from 12 → 60.
+_find_top_holds keeps fish_per_section × 3 candidates. Spawner enforces MIN_FISH_DIST = 48 px to prevent stacking.
+Note: fish_per_section is seeded into the SQLite DB on first run. Changing the value requires deleting user://flyfishing.db so the DB re-seeds from the new defaults.
+Rationale: The original counts produced one visible fish per roughly 6 screen widths. At these densities the fish ecology mechanics (feeding edges, spook geometry, hold selection) are irrelevant in practice — the player rarely encounters a fish at all. 5× brings density to a level where the AI behaviour is frequently visible.
+Files: resources/difficulty_config.gd.
+
+---
+
+PARSE ERRORS ENCOUNTERED AND RESOLVED
+
+[E1] "Invalid access to property 'global_position' on Nil" (river_world.gd:135)
+Root cause: river_renderer.gd failed to parse (due to E2 below), which cascaded: RiverWorld.tscn failed to load $TileMap → tilemap @onready assigned null → sections array empty → angler initialised as null → _process read global_position on null.
+Fix: Added null guard `if angler == null: return` in river_world.gd _process. (Root cause resolved by E2 fix.)
+Files: river_world.gd.
+
+[E2] "Cannot infer the type of 'wy'/'idx' variable" (river_renderer.gd:205, 208)
+Root cause: `for side in [-1, 1]` — GDScript infers `side` as Variant from an untyped array literal. Arithmetic on Variant produces an unresolvable type. This caused a parse error in river_renderer.gd, which cascaded into the E1 nil-access.
+Fix: Explicit type annotations on all Variant-derived variables in the loop:
+  var wy: int = ty + int(side) * dy_off
+  var idx: int = wx * h + wy
+Files: river_renderer.gd (_apply_rock_effects).
+
+[E3] absi() availability
+During development, `absi(dy)` was used for integer absolute value. Not universally available across the GDScript versions in use. Replaced all `absi()` calls with `abs()`, which handles both int and float universally.
+Files: river_renderer.gd.
+
+---
+
+END OF SESSION
+
+Files modified this session:
+- scripts/river/river_renderer.gd
+- scripts/river/river_constants.gd
+- scripts/river/river_generator.gd
+- scripts/river/river_world.gd
+- resources/difficulty_config.gd
+- CLAUDE.md
+- TASKS.md

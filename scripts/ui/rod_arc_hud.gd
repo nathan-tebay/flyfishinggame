@@ -27,6 +27,7 @@ const C_TARGET := Color(0.70, 0.95, 0.40)  # yellow-green target notch
 var casting: CastingController = null
 var drift:   DriftController   = null
 var target_line_length: float  = -1.0   # tiles; -1 = no target
+var watching_dry_fly:   bool   = false  # set by RiverWorld when drift starts
 
 
 func _ready() -> void:
@@ -52,7 +53,10 @@ func _draw() -> void:
 			_draw_rod(ANGLE_IDLE, 0.0)
 			var tip := _rod_tip(ANGLE_IDLE)
 			draw_line(tip, tip + Vector2(-_line_len() * 0.20, 10.0), C_LINE, 1.5)
-			_draw_status(font, "F: feed     R: strip     ↓/↑: cast")
+			if casting.aimed_target.x >= 0.0:
+				_draw_status(font, "A/D: start cast     W: cancel")
+			else:
+				_draw_status(font, "F: feed     R: strip     click water to aim")
 
 		CastingController.State.FALSE_CASTING:
 			_draw_false_casting(font)
@@ -111,7 +115,7 @@ func _draw_false_casting(font: Font) -> void:
 
 	# Rod tip trails behind grip — bends away from cast direction (tip lags due to line inertia)
 	var flex := clampf((progress - 0.70) / 0.30, 0.0, 1.0)
-	_draw_rod(rod_angle, flex * (-1 if casting._stroke_dir == -1 else 1))
+	_draw_rod(rod_angle, flex * (1 if casting._stroke_dir == -1 else -1))
 
 	var tip      := _rod_tip(rod_angle)
 	var line_dir := Vector2(1.0, 0.0) if casting._stroke_dir == -1 else Vector2(-1.0, 0.0)
@@ -190,8 +194,11 @@ func _draw_false_casting(font: Font) -> void:
 		_draw_status(font, "← change direction →", C_TIGHT)
 	elif past_grace > 0.0:
 		_draw_status(font, "← too late — wide loop →", C_BAD)
+	elif casting._early_release_timer > 0.0:
+		var needed := CastingController.MIN_FALSE_CASTS - casting._false_cast_count
+		_draw_status(font, "%d more stroke(s) needed before releasing" % needed, C_BAD)
 	else:
-		_draw_status(font, "↓/↑: rhythm   SPACE: release  [%d/%d]" % [
+		_draw_status(font, "A/D: rhythm   S: release  [%d/%d]" % [
 			casting._false_cast_count, CastingController.MIN_FALSE_CASTS
 		])
 
@@ -221,7 +228,10 @@ func _draw_drift(font: Font) -> void:
 	draw_polyline(pts, line_col, 1.8, true)
 	draw_circle(end, 4.0, C_FLY)
 
-	_draw_status(font, "mouse: mend     R: retrieve     drag: %d%%" % int(drag * 100.0))
+	if watching_dry_fly:
+		_draw_status(font, "watch for a rise — mouse: mend     R: retrieve     drag: %d%%" % int(drag * 100.0))
+	else:
+		_draw_status(font, "watch indicator — mouse: mend     R: retrieve     drag: %d%%" % int(drag * 100.0))
 
 
 # ---------------------------------------------------------------------------

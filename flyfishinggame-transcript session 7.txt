@@ -1,0 +1,127 @@
+Fly Fishing Game — Visual Polish Session 7 Transcript
+Date: 2026-04-16
+
+---
+
+PARTICIPANTS
+- User (game designer / developer)
+- Claude Code (AI assistant)
+
+---
+
+AGENDA
+River and bank visual polish: minimum river width, wake seam lines, loading screen, islands, driftwood logs, bank vegetation and rocks, angler z-index layering, bank feature texture approach, cluster placement, density and sizing tuning.
+
+---
+
+DECISIONS LOG
+
+[1] MINIMUM RIVER WIDTH — MIN_DEPTH_TILES 4 → 14
+Problem: Random depth profiles could produce very narrow river cross-sections, sometimes as few as 4 tiles wide. These were unplayable and visually wrong.
+Decision: Changed MIN_DEPTH_TILES in river_constants.gd from 4 to 14. River is always at least 14 tiles (~112 px) wide at its narrowest.
+Rationale: The Madison River is a wide freestone river. Narrow choke points read as irrigation ditches, not trout water.
+Files: river_constants.gd.
+
+[2] BOULDER AND ROCK WAKE SEAM LINES
+Problem: Boulder wake zones (dead water, side eddies, V-wake) were rendered as depth-map darkening only. The current seam lines — where fast water meets the slower wake — had no visual indicator.
+Decision: Added `_add_wake_seams()` helper called from `_build_rock_clusters`. Draws Line2D pairs along the wake edges:
+  - Teardrop shape: half-width = max_half × (1 - t²) — quadratic convergence to a point downstream.
+  - Confined to water column: line points clamped to top_bank_profile / bottom_bank_profile px bounds.
+  - Applied to both boulders (wake_tiles=9, max_half=rw×1.10) and regular rocks (wake_tiles=5, max_half=rw×0.90).
+  - Alpha gradient: 0.55 → 0.0 from rock to tip; colour a pale blue-white (Color(0.55, 0.80, 0.95)).
+  - Antialiased Line2D, width 1.2 px, z_index=1.
+Rationale: Current seams are where dry flies drag and where fish hold. Making them visible trains the player to read the river. The teardrop convergence matches real wake geometry — the two seam lines meet at the downstream tip of the turbulence zone.
+Files: river_renderer.gd (_add_wake_seams, _build_rock_clusters).
+
+[3] LOADING SCREEN
+Problem: River generation is blocking — the game froze for several frames before the first render on section load. No feedback to the player.
+Decision: Added `scripts/ui/loading_screen.gd` — a Node2D with _draw() painting a full-screen dark overlay (Color(0.05, 0.09, 0.16)) with two text lines:
+  "GENERATING RIVER..." (large, centred)
+  "reading the water" (smaller subtitle)
+In river_world.gd: added _LoadingScreenScript preload, _loading_canvas: CanvasLayer, _show_loading() / _hide_loading() methods. Made _ready() async — show loading → await process_frame × 2 → generate → hide loading. The double frame await ensures the loading screen paints before the blocking generation call.
+Files: scripts/ui/loading_screen.gd (new), scripts/river/river_world.gd.
+
+[4] ISLANDS
+Problem: River had no mid-channel features. Real rivers, especially wide freestone rivers, have gravel islands — permanent or seasonal — that break up current and create holding seams on both sides.
+Decision: Added `_place_islands()` step in RiverGenerator, called after _build_tile_map and before _generate_current_map. Each island:
+  - Length: 10–22 tiles.
+  - Shape: sine-tapered — half_h = int(round(MAX_HALF_H × sin(frac × PI))) — so it tapers to a point at both ends.
+  - Spacing: 120–320 tiles apart (seeded random interval).
+  - Tiles written as TILE_BANK into the river columns.
+  - Placement: centred vertically between top and bottom bank profiles; rejected if it would reach either bank.
+Rationale: Islands create current seams on both flanks — prime feeding lanes for trout. They also add visual variety and navigation challenge for wading.
+Files: river_generator.gd (_place_islands).
+
+[5] DRIFTWOOD LOGS IN RIVER
+Problem: River had no large woody debris. Fallen logs are common in western rivers and are prime cover structure (shade, shelter, bark invertebrate habitat).
+Decision: Added TILE_LOG (id=10) to RiverConstants:
+  - Color: Color(0.38, 0.24, 0.12) — dark bark brown.
+  - STRUCTURE_COVER[10] = 0.8, STRUCTURE_HATCH[10] = 0.5.
+  - _DEPTH_RANK_F[TILE_LOG] = 2.6 in renderer (shallow-ish, sits at water surface).
+In river_generator.gd: TILE_LOG placed by `_place_structures` at `int(7 × density)` count per section. Placement restricted to bank-edge water tiles (y ≤ near_edge+2 or y ≥ far_start-3). Structure width: randi_range(4,9) tiles; height: 1 tile.
+In river_renderer.gd: `_build_log_nodes()` called from render(). Three driftwood variants:
+  - Straight log (40%): tapered rectangle, _draw_driftwood_straight.
+  - Tapered log (35%): asymmetric taper, _draw_driftwood_tapered.
+  - Forked log (25%): Y-shaped split, _draw_driftwood_forked.
+  Angle categories: ±14° (30%), 22–52° (30%), 62–86° near-perpendicular (40%).
+  Colour: weathered grey palette via _bark_colors(rng) — greens 0.38–0.72, desaturated.
+  Dead branch stubs: _add_branch_stubs() adds 2–5 short Line2D branches per log (snapped off, weathered grey).
+Rationale: Logs that have been in the river for years look grey and weathered with broken branch stubs. The near-perpendicular bias matches how logs tend to come to rest — carried sideways by floods and deposited across current. They are some of the most reliable fish cover in western rivers.
+Files: river_constants.gd, river_generator.gd, river_renderer.gd (_build_log_nodes, _draw_driftwood_straight, _draw_driftwood_tapered, _draw_driftwood_forked, _add_branch_stubs, _bark_colors).
+
+[6] BANK VEGETATION AND ROCKS
+Problem: Bank tiles were visually empty — flat green with no texture or vegetation. The near and far banks had nothing to suggest riparian habitat.
+Decision: Added `_build_bank_features()` to river_renderer.gd, called from render(). Three feature types:
+  - Trees: larger canopy (crown_r: ts×0.75–1.30), textured (branch spokes, inner shadow, highlight, bark streaks), lean variation.
+  - Bushes: texture-patch approach — 5–9 overlapping small ellipses per tile, varied green hues and alpha, no distinct silhouette.
+  - Boulders/rocks: texture-patch approach — 3–5 small gray blobs per tile, varied grey tones, no facets or cracks.
+Coverage (final tuning after several iterations):
+  - Every column sampled (no stride), every bank tile eligible.
+  - Trees: 6.25% exclusive (no other feature on tree tile).
+  - Bushes: ~89% of remaining tiles (r < 0.95, continuous ground cover).
+  - Boulders: 30% independent roll (can co-occur with bushes).
+  - 1 row clearance from water edge on both banks (near: ty < near_edge-1; far: ty > far_start).
+  - Far-bank and near-bank conditions checked independently (bug: flat `ty >= near_edge-1` was blocking all far-bank rows).
+Patch placement: each patch centre randomised within tile — `rng.randf_range(ts×0.1, ts×0.9)` on both x and y axes, so cover is not grid-aligned.
+Sizes (after tuning): bush spread ts×0.57, blob radius ts×0.135–0.30; boulder spread ts×0.42, blob radius ts×0.105–0.24.
+Rationale: Riparian vegetation is dense and continuous on a western river. Bushes (willows, alders) grow right to the water's edge and are the dominant visual element on the bank. Rocks and boulders are scattered throughout. The texture-patch approach avoids individual-object recognition — the bank reads as ground cover, not a collection of placed props.
+Files: river_renderer.gd (_build_bank_features, _draw_bank_tree, _draw_bank_bush, _draw_bank_boulder).
+
+[7] ANGLER Z-INDEX FIX
+Problem: Angler sprite was rendering behind bank features (bushes, boulders) placed by _build_bank_features. The player character was occluded by vegetation drawn on lower z-index children.
+Decision: Added `z_index = 5` in Angler._ready(). Renderer bank feature overlays use z_index 1–2. Angler at 5 renders above all of them.
+Rationale: The player character must always be visible. Vegetation occlusion is visually plausible in real life but creates a readability problem — the player loses their character in dense brush.
+Files: scripts/angler/angler.gd.
+
+---
+
+BUGS ENCOUNTERED AND RESOLVED
+
+[B1] Far-bank features not rendering
+Root cause: `if ty >= near_edge - 1: continue` in _build_bank_features. For far-bank rows, ty is large (e.g. 25+) and near_edge is ~3, so the condition always triggered. All far-bank tiles were skipped.
+Fix: Split the clearance check by bank side:
+  if ty < far_start:
+      if ty >= near_edge - 1: continue   # near bank
+  else:
+      if ty == far_start: continue       # far bank
+Files: river_renderer.gd (_build_bank_features).
+
+[B2] 2-row clearance killing near-bank coverage
+Earlier iteration used `ty >= near_edge - 2` (2-row clearance). With near_edge=3, this leaves only ty=0. Combined with STRIDE=2, almost nothing rendered. Reverted to 1-row clearance.
+Files: river_renderer.gd (_build_bank_features).
+
+[B3] FastNoiseLite cluster gate too aggressive
+Cluster noise gate (< 0.22 skip) caused sparse/absent coverage when combined with the low bank tile count (3 rows near bank). Removed gate for final ground-cover approach — continuous coverage better serves the visual goal than patchy clusters.
+Files: river_renderer.gd (_build_bank_features).
+
+---
+
+END OF SESSION
+
+Files modified this session:
+- scripts/river/river_constants.gd  (MIN_DEPTH_TILES, TILE_LOG)
+- scripts/river/river_generator.gd  (_place_islands, TILE_LOG in _place_structures)
+- scripts/river/river_renderer.gd   (_add_wake_seams, _build_log_nodes, _build_bank_features, driftwood helpers)
+- scripts/river/river_world.gd      (loading screen integration, async _ready)
+- scripts/angler/angler.gd          (z_index = 5)
+- scripts/ui/loading_screen.gd      (new file)

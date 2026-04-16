@@ -1,6 +1,7 @@
 class_name RiverConstants
 
 const TILE_SIZE        := 32
+const FEET_PER_TILE    := 8.0   # 1 tile = 32 px = 8 ft; river at MAX_DEPTH_TILES (22) ≈ 176 ft wide
 const SECTION_SCREENS  := 24
 const SCREEN_W_TILES   := 60    # 1920 / TILE_SIZE
 const SECTION_W_TILES  := 1440  # SECTION_SCREENS * SCREEN_W_TILES
@@ -9,8 +10,8 @@ const SECTION_W_TILES  := 1440  # SECTION_SCREENS * SCREEN_W_TILES
 const RIVER_H_TILES        := 30
 const BANK_H_TILES         := 3   # top bank (near shore, where angler starts)
 const BOTTOM_BANK_H_TILES  := 3   # far bank (opposite shore)
-const MIN_DEPTH_TILES      := 4   # shallowest ford (crossable, ≤ MAX_WADE_DEPTH in angler.gd)
-const MAX_DEPTH_TILES      := 22  # deepest pool (RIVER_H_TILES - BANK_H_TILES - BOTTOM_BANK_H_TILES - 2)
+const MIN_DEPTH_TILES      := 14  # minimum river width on screen — narrowest cross-section is 14 tiles
+const MAX_DEPTH_TILES      := 25  # deepest pool — increased to give wider river cross-section
 
 # Sky strip sits above the TileMap in screen space (via CanvasLayer)
 const SKY_HEIGHT_PX    := 96    # BANK_H_TILES * TILE_SIZE — kept as px for CanvasLayer sizing
@@ -21,12 +22,12 @@ const TILE_BANK            := 0
 const TILE_SURFACE         := 1
 const TILE_MID_DEPTH       := 2
 const TILE_DEEP            := 3
-const TILE_RIVERBED        := 4
 const TILE_WEED_BED        := 5
 const TILE_ROCK            := 6
 const TILE_BOULDER         := 7
 const TILE_UNDERCUT_BANK   := 8
 const TILE_GRAVEL_BAR      := 9
+const TILE_LOG             := 10  # fallen log in river — cover + shade
 
 # --- TileMap layer indices ---
 const LAYER_BASE       := 0
@@ -39,12 +40,12 @@ const TILE_COLORS: Dictionary = {
 	1: Color(0.55, 0.85, 0.98),   # SURFACE          — light blue
 	2: Color(0.22, 0.55, 0.88),   # MID_DEPTH        — medium blue
 	3: Color(0.10, 0.25, 0.65),   # DEEP             — dark blue
-	4: Color(0.45, 0.38, 0.28),   # RIVERBED         — brown
-	5: Color(0.12, 0.50, 0.20),   # WEED_BED         — dark green
+	5: Color(0.05, 0.28, 0.14),   # WEED_BED         — deep submerged green
 	6: Color(0.52, 0.48, 0.43),   # ROCK             — gray
 	7: Color(0.35, 0.30, 0.25),   # BOULDER          — dark gray
 	8: Color(0.42, 0.32, 0.22),   # UNDERCUT_BANK    — dark brown
 	9: Color(0.72, 0.67, 0.52),   # GRAVEL_BAR       — tan
+	10: Color(0.38, 0.24, 0.12),  # LOG              — dark bark brown
 }
 
 # --- Structure properties: cover value and hatch indicator weight ---
@@ -54,6 +55,7 @@ const STRUCTURE_COVER: Dictionary = {
 	7: 0.9,   # BOULDER
 	8: 0.8,   # UNDERCUT_BANK
 	9: 0.1,   # GRAVEL_BAR
+	10: 0.8,  # LOG — shade + shelter
 }
 
 const STRUCTURE_HATCH: Dictionary = {
@@ -62,6 +64,7 @@ const STRUCTURE_HATCH: Dictionary = {
 	7: 0.8,   # BOULDER
 	8: 0.5,   # UNDERCUT_BANK
 	9: 0.2,   # GRAVEL_BAR
+	10: 0.5,  # LOG — bark caddis habitat
 }
 
 # --- Habitat type IDs — per-column classification in RiverData.habitat_type[] ---

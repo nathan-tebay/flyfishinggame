@@ -52,6 +52,9 @@ var _sections: Array = []
 
 const _CastTargetOverlayScript = preload("res://scripts/ui/cast_target_overlay.gd")
 const _TileLegendScript        = preload("res://scripts/ui/tile_legend.gd")
+const _LoadingScreenScript     = preload("res://scripts/ui/loading_screen.gd")
+
+var _loading_canvas: CanvasLayer = null
 
 var _current_section_idx: int = 0
 var _catch_log: CatchLog = null
@@ -60,9 +63,27 @@ var _insect_nodes: Array = [] # world-space InsectParticle children
 var _show_debug := false
 var _target_overlay  # CastTargetOverlay — instantiated in _ready
 var _tile_legend  # TileLegend — F1 tile-type reference overlay
+var _dragging_target := false
+
+
+func _show_loading() -> void:
+	_loading_canvas = CanvasLayer.new()
+	_loading_canvas.layer = 100
+	_loading_canvas.add_child(_LoadingScreenScript.new())
+	add_child(_loading_canvas)
+
+
+func _hide_loading() -> void:
+	if _loading_canvas:
+		_loading_canvas.queue_free()
+		_loading_canvas = null
 
 
 func _ready() -> void:
+	_show_loading()
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	# Session always pre-initialized by SessionConfig; guard for direct scene launch in editor
 	if GameManager.session_id < 0:
 		GameManager.new_session(12345, 6.0, DifficultyConfig.Tier.STANDARD)
@@ -84,9 +105,12 @@ func _ready() -> void:
 
 	casting.drift_started.connect(drift.on_drift_started)
 	casting.drift_ended.connect(drift.on_drift_ended)
+	casting.drift_ended.connect(func(): rod_arc_hud.watching_dry_fly = false)
 	casting.mend_upstream.connect(drift.on_mend.bind(-1))
 	casting.mend_downstream.connect(drift.on_mend.bind(1))
 	casting.cast_result.connect(_on_cast_result)
+	casting.cast_cancelled.connect(_on_cast_cancelled)
+	casting.drift_started.connect(_on_drift_started_angler)
 
 	# Net sampler
 	net_sampler.angler     = angler
@@ -115,6 +139,8 @@ func _ready() -> void:
 	TimeOfDay.period_changed.connect(_on_period_changed)
 	angler.standing_still.connect(_on_angler_standing_still)
 
+	_hide_loading()
+
 	_target_overlay = _CastTargetOverlayScript.new()
 	add_child(_target_overlay)
 
@@ -128,6 +154,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if angler == null:
+		return
 	camera.set_anchor(angler.global_position.x)
 	_check_section_transition()
 	if _target_overlay != null:
@@ -147,15 +175,21 @@ func _input(event: InputEvent) -> void:
 			KEY_F1:
 				_tile_legend.toggle()
 
-	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		match mb.button_index:
-			MOUSE_BUTTON_LEFT:
-				# Only accept target while idle — don't interrupt an active cast
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
 				if casting.state == CastingController.State.IDLE:
 					_try_set_cast_target(mb.position)
-			MOUSE_BUTTON_RIGHT:
-				_clear_cast_target()
+					_dragging_target = true
+			else:
+				_dragging_target = false
+		elif mb.button_index == MOUSE_BUTTON_RIGHT and (mb as InputEventMouseButton).pressed:
+			_clear_cast_target()
+
+	if event is InputEventMouseMotion and _dragging_target:
+		if casting.state == CastingController.State.IDLE:
+			_try_set_cast_target((event as InputEventMouseMotion).position)
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +309,7 @@ func _update_angler_section(idx: int) -> void:
 		drift.on_drift_ended()
 		casting.state = CastingController.State.IDLE
 		_clear_cast_target()
+		rod_arc_hud.watching_dry_fly = false
 		return
 
 
@@ -474,27 +509,44 @@ func _try_set_cast_target(screen_pos: Vector2) -> void:
 	var tile: int = river_data_local.tile_map[col][row]
 	# Only allow water tiles as cast targets
 	if tile != RiverConstants.TILE_SURFACE and tile != RiverConstants.TILE_MID_DEPTH and \
-			tile != RiverConstants.TILE_DEEP and tile != RiverConstants.TILE_RIVERBED:
+			tile != RiverConstants.TILE_DEEP:
 		return
 	# Snap to tile centre
 	var snapped := Vector2(
 		angler.section_start_x + float(col) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5,
 		float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
 	)
+	var dist_tiles := snapped.distance_to(angler.position) / float(RiverConstants.TILE_SIZE)
+	if dist_tiles > CastingController.LINE_MAX:
+		return
+	var req    := clampf(dist_tiles, CastingController.LINE_MIN, CastingController.LINE_MAX)
 	casting.aimed_target             = snapped
+	angler.casting_active            = true
 	_target_overlay.target           = snapped
 	_target_overlay.angler_pos       = angler.position
-	var h_dist := absf(snapped.x - angler.position.x)
-	var req    := clampf(h_dist / float(RiverConstants.TILE_SIZE),
-			CastingController.LINE_MIN, CastingController.LINE_MAX)
-	_target_overlay.required_line    = req
-	rod_arc_hud.target_line_length   = req
+	_target_overlay.required_line  = req
+	_target_overlay.line_fraction  = (req - CastingController.LINE_MIN) / \
+			(CastingController.LINE_MAX - CastingController.LINE_MIN)
+	rod_arc_hud.target_line_length = req
 
 
 func _clear_cast_target() -> void:
 	casting.aimed_target           = Vector2(-1.0, -1.0)
+	angler.casting_active          = false
 	_target_overlay.target         = Vector2(-1.0, -1.0)
 	rod_arc_hud.target_line_length = -1.0
+
+
+func _on_cast_cancelled() -> void:
+	_dragging_target = false
+	_clear_cast_target()
+	rod_arc_hud.watching_dry_fly = false
+
+
+func _on_drift_started_angler() -> void:
+	# Fly is on the water — angler can move again while drifting
+	angler.casting_active = false
+	rod_arc_hud.watching_dry_fly = fly_selector.is_dry_fly()
 
 
 func _on_cast_result(quality: int, target_x: float, target_y: float) -> void:

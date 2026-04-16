@@ -18,6 +18,7 @@ func generate(seed: int, config: DifficultyConfig) -> RiverData:
 	_inject_ford_sections(data)        # carve periodic shallow crossings (overrides template)
 	_classify_habitat(data)            # label columns: pool/run/riffle/ford (reads depth_profile)
 	_build_tile_map(data)
+	_place_islands(data)
 	_generate_current_map(data)
 	_place_structures(data, config)
 	_apply_structure_tiles(data)
@@ -268,8 +269,8 @@ func _build_tile_map(data: RiverData) -> void:
 		var bot_bank_h: int = clampi(int(round(far_bank_raw)),
 				RiverConstants.BOTTOM_BANK_H_TILES, RiverConstants.BOTTOM_BANK_H_TILES + 2)
 
-		# Actual water column height — capped per column so riverbed + far bank fit in RIVER_H_TILES.
-		var cap_depth := mini(max_depth, data.height - top_bank_h - bot_bank_h - 1)
+		# Actual water column height — leave 1 tile margin; far bank fills to screen bottom.
+		var cap_depth := mini(max_depth, data.height - top_bank_h - 1)
 		var water_cols := min_depth + int(depth_val * float(cap_depth - min_depth))
 		var riverbed_row := top_bank_h + water_cols  # row index of riverbed tile
 		data.bottom_bank_profile[x] = riverbed_row + 1  # first row of far bank
@@ -277,9 +278,10 @@ func _build_tile_map(data: RiverData) -> void:
 		for y in data.height:
 			if y < top_bank_h:
 				data.tile_map[x][y] = RiverConstants.TILE_BANK
-			elif y < riverbed_row:
+			elif y <= riverbed_row:
 				# U-shaped depth: deepest in the centre of the water column.
-				# frac=0 at top (near bank) edge, frac=1 at bottom (far bank) edge
+				# frac=0 at near bank edge, frac=1 at far bank edge — both edges
+				# get the same shallow treatment so both banks look symmetric.
 				var frac:     float = float(y - top_bank_h) / float(water_cols)
 				var centre_d: float = absf(frac - 0.5) * 2.0   # 0 = centre, 1 = edge
 
@@ -306,12 +308,60 @@ func _build_tile_map(data: RiverData) -> void:
 					data.tile_map[x][y] = RiverConstants.TILE_MID_DEPTH
 				else:
 					data.tile_map[x][y] = RiverConstants.TILE_SURFACE
-			elif y == riverbed_row:
-				data.tile_map[x][y] = RiverConstants.TILE_RIVERBED
-			elif y < riverbed_row + bot_bank_h + 1:
-				# Far (bottom) bank — height varies per column for curved appearance
+			else:
+				# Far bank fills all rows below the water column to the screen bottom
 				data.tile_map[x][y] = RiverConstants.TILE_BANK
-			# y beyond that stays TILE_AIR
+
+
+# ---------------------------------------------------------------------------
+# Step 2b — Islands: mid-river exposed bank strips that split current into seams.
+# Placed after _build_tile_map so bank profiles are known; before _generate_current_map
+# so current correctly reads TILE_BANK (0.0) for island tiles.
+# Shape: sine-tapered — 1-tile tips, up to 3 tiles wide in the middle.
+# Renderer handles visuals via depth-field pipeline (TILE_BANK → depth rank 0.0).
+# ---------------------------------------------------------------------------
+
+func _place_islands(data: RiverData) -> void:
+	const MAX_HALF_H := 1     # island up to 3 tiles tall (center ± MAX_HALF_H)
+	const MIN_CLEAR  := 3     # min water tiles each side of island
+	const MIN_WATER  := MAX_HALF_H * 2 + MIN_CLEAR * 2 + 1  # = 9
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = data.seed ^ 888888
+
+	var x := rng.randi_range(60, 180)
+	while x < data.width - 40:
+		var island_len := rng.randi_range(10, 22)
+		var x_end      := mini(x + island_len, data.width - 4)
+		var span       := x_end - x
+		if span < 5:
+			x += island_len + rng.randi_range(120, 320)
+			continue
+
+		# Verify all columns have enough water and compute avg center
+		var center_sum := 0
+		var valid      := true
+		for ix in range(x, x_end):
+			var top_w: int = data.top_bank_profile[ix]
+			var bot_w: int = data.bottom_bank_profile[ix] - 1
+			if bot_w - top_w + 1 < MIN_WATER:
+				valid = false
+				break
+			center_sum += (top_w + bot_w) / 2
+
+		if valid:
+			var center_y: int = center_sum / span + rng.randi_range(-1, 1)
+			for ix in range(x, x_end):
+				var frac   := float(ix - x) / float(span)
+				var half_h := int(round(float(MAX_HALF_H) * sin(frac * PI)))
+				for iy in range(center_y - half_h, center_y + half_h + 1):
+					if iy < 0 or iy >= data.height:
+						continue
+					var t: int = data.tile_map[ix][iy]
+					if t != RiverConstants.TILE_BANK and t != RiverConstants.TILE_AIR:
+						data.tile_map[ix][iy] = RiverConstants.TILE_BANK
+
+		x += island_len + rng.randi_range(120, 320)
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +390,6 @@ func _generate_current_map(data: RiverData) -> void:
 					data.current_map[x][y] = base_speed * 0.85
 				RiverConstants.TILE_DEEP:
 					data.current_map[x][y] = base_speed * 0.60
-				RiverConstants.TILE_RIVERBED:
-					data.current_map[x][y] = base_speed * 0.30
 				_:
 					data.current_map[x][y] = base_speed
 
@@ -363,6 +411,7 @@ func _place_structures(data: RiverData, config: DifficultyConfig) -> void:
 		RiverConstants.TILE_ROCK:          int(28 * density),
 		RiverConstants.TILE_BOULDER:       int(8  * density),
 		RiverConstants.TILE_GRAVEL_BAR:    int(8  * density),
+		RiverConstants.TILE_LOG:           int(7  * density),
 	}
 
 	for tile_type: int in counts:
@@ -411,6 +460,13 @@ func _valid_placement(data: RiverData, tile_type: int, x: int, y: int) -> bool:
 		RiverConstants.TILE_GRAVEL_BAR:
 			return tile == RiverConstants.TILE_SURFACE or \
 				(tile == RiverConstants.TILE_MID_DEPTH and (data.depth_profile[x] as float) < 0.35)
+		RiverConstants.TILE_LOG:
+			# Logs fall into near-bank or far-bank water edge only
+			if tile not in [RiverConstants.TILE_SURFACE, RiverConstants.TILE_MID_DEPTH]:
+				return false
+			var near_edge: int = data.top_bank_profile[x]
+			var far_start: int = data.bottom_bank_profile[x]
+			return y <= near_edge + 2 or y >= far_start - 3
 	return false
 
 
@@ -420,6 +476,7 @@ func _structure_w(rng: RandomNumberGenerator, tile_type: int) -> int:
 		RiverConstants.TILE_ROCK:          return rng.randi_range(1, 2)
 		RiverConstants.TILE_BOULDER:       return rng.randi_range(2, 4)
 		RiverConstants.TILE_GRAVEL_BAR:    return rng.randi_range(5, 12)
+		RiverConstants.TILE_LOG:           return rng.randi_range(4, 9)
 	return 2
 
 
@@ -429,6 +486,7 @@ func _structure_h(rng: RandomNumberGenerator, tile_type: int) -> int:
 		RiverConstants.TILE_ROCK:          return rng.randi_range(1, 2)
 		RiverConstants.TILE_BOULDER:       return rng.randi_range(2, 3)
 		RiverConstants.TILE_GRAVEL_BAR:    return rng.randi_range(2, 3)
+		RiverConstants.TILE_LOG:           return 1
 	return 1
 
 

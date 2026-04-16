@@ -1,0 +1,83 @@
+Building a Fly Fishing Game, Part 7: Dressing the Banks
+
+The river looked like water after last session. This session was about making it look like a place.
+
+Water without a bank is a swimming pool. A trout river has context — the riparian corridor, the gravel bars, the fallen cottonwoods half-submerged and bleached silver-grey, the willows growing so close to the water their roots are always wet. The bank is where the river begins and ends, and it shapes how a fly fisher reads the water. Cover on the bank casts shade on the near-bank water. Logs create seams. Boulders redirect current.
+
+This session added all of that.
+
+---
+
+Making the River Wider
+
+First, a quick fix: the minimum river width. The depth profile generator could produce cross-sections as narrow as 4 tiles. Four tiles at 32 pixels each is 128 pixels — about the width of a kitchen sink. Not a trout river.
+
+Changed the minimum to 14 tiles. The river is now always at least 112 pixels wide at its narrowest point, usually much wider. A constraint that should have been tighter from the start.
+
+---
+
+Loading Screen
+
+River generation is blocking. The section generator runs on the main thread and takes long enough that the first frame after scene change was visually frozen. No feedback, no indication anything was happening.
+
+A loading screen is the honest solution. Dark background, two lines of text: "GENERATING RIVER..." and the smaller "reading the water" below. It appears immediately when the scene loads and disappears once generation finishes.
+
+The Godot-specific trick: you can't just show a node and then do work — if you block the main thread before yielding to the frame loop, the screen never paints. Two `await get_tree().process_frame` calls let the renderer do its job before the blocking work begins. The loading screen renders; then the generator runs.
+
+---
+
+Islands
+
+Wide rivers have islands — gravel deposits that break the surface mid-channel. The Madison has them. They create seams on both flanks, which means two productive feeding lanes for the price of one structure element.
+
+The generator now places islands after the tile map is built. Each island is a strip of TILE_BANK tiles in the river channel, tapered at both ends by a sine curve so it comes to a point upstream and downstream. Length 10–22 tiles. Spacing 120–320 tiles apart. Centred vertically between the banks; rejected if it reaches either shore.
+
+The current map runs after island placement, so the current values around islands correctly reflect the obstruction. Fish hold in the seams on both flanks just as they would around any structure.
+
+---
+
+Driftwood
+
+Logs belong in western rivers. Cottonwoods fall during spring floods. Some lodge on gravel bars. Some float downstream until they catch on a boulder or the far bank. A few make it hundreds of miles before coming to rest in a deep pool where they'll sit for decades, becoming prime cover for the largest fish in the section.
+
+The game needed logs.
+
+The generator places them as TILE_LOG tiles at the water's edge — one tile tall, 4–9 tiles wide — at roughly seven per section. The renderer draws them as actual driftwood: three shape variants (straight, tapered, forked) with random angles. About 40 percent are nearly perpendicular to the bank, which is how logs tend to rest after being carried sideways by current. The rest range from slightly angled to nearly parallel.
+
+Colour is important here. Fresh wood is brown. Old wood — wood that's been in a river for years, alternately submerged and exposed, bleached by sun and leached by water — is grey. Almost silver in bright light. The logs in the game are grey, with 2–5 broken branch stubs per log, the branches snapped off by the same flood that carried the tree downstream. They look like they've been there long enough to grow moss.
+
+---
+
+Dressing the Banks
+
+The bank tiles were flat green. Real riparian zones aren't flat anything — they're the densest vegetation in a landscape. Willows, alders, water birches. Rocks and boulders deposited by high water. The occasional large ponderosa pine or cottonwood standing above the understory.
+
+Three feature types, two approaches.
+
+Trees are drawn as distinct objects — trunk, branching spokes, jittered circular crown, inner shadow, highlight. They're recognisable as trees because they're supposed to be. A fly fisher reads the bank for shade and obstacles. Trees cast shade. Trees mean undercut banks. Trees are landmarks.
+
+Bushes and rocks are drawn differently. Not as individual objects but as texture patches — overlapping small blobs of colour, 5–9 per tile for bushes, 3–5 for rocks. No outlines, no highlights, no individual shapes you can identify. The bank reads as dense undergrowth and scattered rock, not as a collection of placed props. The blobs overlap between adjacent tiles, so the cover is continuous.
+
+Tuning took several iterations. The first attempt at cluster placement with noise gating was too aggressive — the 3-tile-tall near bank didn't have enough rows for clusters to form naturally. Removed the gate entirely and went to continuous coverage: every bank tile eligible, bushes on ~89% of them, rocks on 30% (independent roll, can co-occur), trees on 6.25% (exclusive — no bushes or rocks on the same tile as a tree).
+
+One bug worth noting: the initial clearance condition for keeping features away from the water's edge was `ty >= near_edge - 1`. For far-bank rows, `ty` is something like 25. `near_edge` is 3. The condition was always true, and the far bank was getting no features at all. Fixed by checking near-bank and far-bank conditions independently.
+
+The patch centres are placed randomly within each tile on both axes, so the cover isn't grid-aligned. At the scale the player sees the bank, it reads as natural scatter.
+
+---
+
+Seeing the Angler
+
+After adding bank features, the angler disappeared into the bushes.
+
+Not a metaphor. The angler's Node2D z_index defaulted to 0. The bank feature overlays render at z_index 1–2. The player character was being drawn behind the vegetation.
+
+Set angler z_index to 5. Problem solved. The player is always visible.
+
+---
+
+Where Things Stand
+
+The river has a river in it. Banks covered in vegetation and rocks, logs drifting in the current, islands splitting the flow. Wake seam lines show where fast water meets the dead zone behind each boulder. A loading screen signals intent before the first render.
+
+The rendering is now close to what it needs to be for a coherent play experience. The next work is probably gameplay polish — fish behaviour, casting feel, or content beyond the single-section starting point.

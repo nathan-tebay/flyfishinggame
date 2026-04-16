@@ -33,7 +33,7 @@ enum Tier { ARCADE, STANDARD, SIM }
 
 # --- River generation ---
 @export var structure_density_multiplier: float = 1.0
-@export var fish_per_section: int = 12
+@export var fish_per_section: int = 60
 
 
 static func arcade():
@@ -54,7 +54,7 @@ static func arcade():
 	c.show_sample_abundance_bars = true
 	c.hookset_window_duration = 1.2
 	c.structure_density_multiplier = 2.0
-	c.fish_per_section = 26
+	c.fish_per_section = 130
 	return c
 
 
@@ -76,7 +76,7 @@ static func standard():
 	c.show_sample_abundance_bars = true
 	c.hookset_window_duration = 0.8
 	c.structure_density_multiplier = 1.5
-	c.fish_per_section = 18
+	c.fish_per_section = 90
 	return c
 
 
@@ -98,7 +98,7 @@ static func sim():
 	c.show_sample_abundance_bars = false
 	c.hookset_window_duration = 0.5
 	c.structure_density_multiplier = 1.0
-	c.fish_per_section = 12
+	c.fish_per_section = 60
 	return c
 
 

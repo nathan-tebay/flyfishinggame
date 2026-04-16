@@ -9,13 +9,14 @@ enum CastQuality { TIGHT, SLOPPY, BAD }
 
 signal cast_started
 signal cast_result(quality: int, target_x: float, target_y: float)
+signal cast_cancelled
 signal mend_upstream
 signal mend_downstream
 signal drift_started
 signal drift_ended
 
-const LINE_MIN        := 2.0    # minimum castable line (tiles)
-const LINE_MAX        := 20.0   # maximum castable line (tiles)
+const LINE_MIN        := 2.0    # minimum castable line (tiles) — 16 ft
+const LINE_MAX        := 7.5    # maximum castable line (tiles) — 60 ft at 8 ft/tile
 const LINE_FEED_RATE  := 3.0    # tiles per second when feeding
 const LINE_STRIP_RATE := 5.0    # tiles per second when stripping
 
@@ -33,7 +34,7 @@ const RESULT_DUR       := 1.2   # seconds cast quality is displayed
 const MEND_THRESHOLD   := 40.0  # mouse pixels of movement to trigger a mend
 
 var state: State = State.IDLE
-var line_length: float = 6.0
+var line_length: float = 3.5    # starting line ~28 ft
 var cast_quality: CastQuality = CastQuality.TIGHT
 
 var angler: Node2D = null   # set by RiverWorld after spawn
@@ -55,6 +56,9 @@ var _target_y: float = 0.0
 
 # Mouse accumulator for mend detection during drift
 var _mend_accum: float = 0.0
+
+# Counts down after a too-early release attempt; read by RodArcHUD for feedback
+var _early_release_timer: float = 0.0
 
 # Set by RiverWorld when player clicks a cast target. Vector2(-1,-1) = no target.
 var aimed_target: Vector2 = Vector2(-1.0, -1.0)
@@ -98,15 +102,22 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _process_idle(delta: float) -> void:
+	if aimed_target.x >= 0.0:
+		# Casting mode — WASD repurposed: A/D start strokes, W cancels
+		if Input.is_action_just_pressed("move_left"):
+			_begin_false_casting(-1)
+		elif Input.is_action_just_pressed("move_right"):
+			_begin_false_casting(1)
+		elif Input.is_action_just_pressed("move_up"):
+			aimed_target = Vector2(-1.0, -1.0)
+			cast_cancelled.emit()
+		return
+
+	# No target — line management only
 	if Input.is_action_pressed("feed_line"):
 		line_length = minf(line_length + LINE_FEED_RATE * delta, LINE_MAX)
 	elif Input.is_action_pressed("strip_line"):
 		line_length = maxf(line_length - LINE_STRIP_RATE * delta, LINE_MIN)
-
-	if Input.is_action_just_pressed("cast_back"):
-		_begin_false_casting(-1)
-	elif Input.is_action_just_pressed("cast_forward"):
-		_begin_false_casting(1)
 
 
 # ---------------------------------------------------------------------------
@@ -132,18 +143,17 @@ func _load_time() -> float:
 
 
 func _process_false_casting(delta: float) -> void:
+	if _early_release_timer > 0.0:
+		_early_release_timer = maxf(0.0, _early_release_timer - delta)
+
 	if _in_stroke:
 		_stroke_timer += delta
 
-	if Input.is_action_pressed("feed_line"):
-		line_length = minf(line_length + LINE_FEED_RATE * delta, LINE_MAX)
-	elif Input.is_action_pressed("strip_line"):
-		line_length = maxf(line_length - LINE_STRIP_RATE * delta, LINE_MIN)
-
+	# A/D alternate strokes; S completes the cast; W cancels
 	var new_dir := 0
-	if Input.is_action_just_pressed("cast_back"):
+	if Input.is_action_just_pressed("move_left"):
 		new_dir = -1
-	elif Input.is_action_just_pressed("cast_forward"):
+	elif Input.is_action_just_pressed("move_right"):
 		new_dir = 1
 
 	if new_dir != 0 and new_dir != _stroke_dir:
@@ -152,15 +162,20 @@ func _process_false_casting(delta: float) -> void:
 		_stroke_timer = 0.0
 		_in_stroke    = true
 
-	if Input.is_action_just_pressed("complete_cast"):
+	if Input.is_action_just_pressed("move_down"):
 		if _false_cast_count >= MIN_FALSE_CASTS:
 			if _in_stroke:
 				_finish_stroke()
 			_enter_presentation()
 		else:
+			_early_release_timer = 0.8
 			if OS.is_debug_build():
 				print("CastingController: need %d more direction change(s) before releasing" % \
 					(MIN_FALSE_CASTS - _false_cast_count))
+	elif Input.is_action_just_pressed("move_up"):
+		state = State.IDLE
+		aimed_target = Vector2(-1.0, -1.0)
+		cast_cancelled.emit()
 
 
 func _finish_stroke() -> void:
@@ -201,7 +216,7 @@ func _enter_result() -> void:
 	# Extra scatter if line length doesn't match required distance to aimed target
 	var base_scatter: float = ([0.4, 1.8, 4.5] as Array)[cast_quality] * RiverConstants.TILE_SIZE
 	if aimed_target.x >= 0.0:
-		var required_tiles := absf(aimed_target.x - angler.position.x) / float(RiverConstants.TILE_SIZE)
+		var required_tiles := aimed_target.distance_to(angler.position) / float(RiverConstants.TILE_SIZE)
 		var length_error   := absf(line_length - required_tiles)
 		base_scatter += length_error * RiverConstants.TILE_SIZE * 0.6
 	var rng := RandomNumberGenerator.new()

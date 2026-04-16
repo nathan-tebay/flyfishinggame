@@ -221,6 +221,25 @@ Releases: https://github.com/2shady4u/godot-sqlite/releases
 
 ---
 
+## Post-Phase-8 Polish — River Rendering & Balance
+
+Work done after the PoC was complete; not a blocking phase.
+
+- [x] `RiverRenderer` completely rewritten — continuous depth-field pipeline replaces TileMap tile layers
+  - Float depth map built from `_DEPTH_RANK_F`; 2-pass separable box blur for organic transitions
+  - 24 × Sprite2D chunks (1920 px wide) baked from bilinear depth→colour gradient
+  - Two-frequency sinusoidal flow bands + caustic sparkle texture inside water zones
+  - Fast-current (`current_map`) lightening pass — riffles visually brighter than pools
+  - Rock/boulder clusters: Polygon2D + Line2D child nodes (unchanged from Phase 8 visual approach)
+- [x] Boulder wake — 3 distinct zones written into the depth map before chunk bake:
+  dead water (prime holding lie), side eddies, long V-wake
+- [x] River cross-section widened — `MAX_DEPTH_TILES` 22 → 25; far bank fills to screen bottom
+- [x] Fish counts 5×: Arcade 26→130, Standard 18→90, Sim 12→60
+- [x] `_DEPTH_STOPS` gradient tuned — gravel bar (1.1) sandy tan, weed bed (2.4) blue-teal,
+  shallow→mid transition fixed (no green cast), overall contrast reduced ~25%
+
+---
+
 ## Notes for Agentic Sessions
 
 - **Always read `CLAUDE.md` first** — it contains system constraints that must not be violated

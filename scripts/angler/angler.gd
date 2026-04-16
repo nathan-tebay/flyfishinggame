@@ -22,6 +22,7 @@ signal standing_still
 var is_wading: bool = false
 var wading_depth: float = 0.0      # 0.0 = at surface, 1.0 = max wading depth
 var vibration_radius: float = 0.0  # read by SpookCalculator; 0 when still or on bank
+var casting_active: bool = false   # set by RiverWorld; blocks movement during casting
 
 var river_data: RiverData          # assigned by RiverWorld; updated on section crossing
 var section_start_x: float = 0.0  # world x of the current section's left edge
@@ -33,6 +34,7 @@ var is_moving: bool = false   # public — read by FishAI for SpookCalculator
 
 func _ready() -> void:
 	position = Vector2(240.0, BANK_Y)
+	z_index = 5   # render above all bank/river overlays (max renderer z_index = 2)
 	_refresh_shadow_visibility()
 
 
@@ -50,6 +52,9 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _handle_movement(delta: float) -> bool:
+	if casting_active:
+		return false
+
 	var dx := 0.0
 	if Input.is_action_pressed("move_right"):
 		dx = 1.0
@@ -76,56 +81,57 @@ func _handle_movement(delta: float) -> bool:
 		# When on the far bank, only allow horizontal movement if the destination column
 		# also has a bank tile at the current row. Prevents walking off the ford edge
 		# into deep water, which causes a two-frame y-teleport through the river.
+		var new_col := clampi(int((new_x - section_start_x) / RiverConstants.TILE_SIZE),
+				0, river_data.width - 1)
+		var cur_row := clampi(int(position.y / RiverConstants.TILE_SIZE),
+				0, river_data.height - 1)
+		var tile_ahead: int = river_data.tile_map[new_col][cur_row] \
+				if river_data != null else RiverConstants.TILE_BANK
 		var on_far_bank := not is_wading and _is_on_far_bank()
 		if on_far_bank:
-			var new_col := clampi(int((new_x - section_start_x) / RiverConstants.TILE_SIZE),
-					0, river_data.width - 1)
-			var cur_row := clampi(int(position.y / RiverConstants.TILE_SIZE),
-					0, river_data.height - 1)
-			var tile_ahead: int = river_data.tile_map[new_col][cur_row]
+			# Far bank — only allow movement where a bank tile continues
 			if tile_ahead == RiverConstants.TILE_BANK or tile_ahead == RiverConstants.TILE_AIR:
 				position.x = new_x
-			# else: ford edge — block horizontal movement
+		elif tile_ahead == RiverConstants.TILE_DEEP or tile_ahead == RiverConstants.TILE_BOULDER:
+			# Impassable tile at current depth — block horizontal movement rather than teleporting
+			pass
 		else:
 			position.x = new_x
-			# When wading, clamp y to the new column's wading limit to prevent
-			# drifting into TILE_AIR when walking from a deep section into a ford.
-			if is_wading:
-				position.y = minf(position.y, _max_wade_y())
 
-	# Vertical — down enters/deepens in water; up walks up bank or exits water.
+	# Vertical — check the destination tile each step; block on TILE_DEEP / TILE_BOULDER.
 	if dy > 0.0:
-		if is_wading:
-			position.y = minf(position.y + WADE_SPEED_V * delta, _max_wade_y())
-		elif _is_on_far_bank():
-			# Far bank — move downward within far bank tiles only
-			var fb_bottom_y := _far_bank_bottom_y()
-			position.y = minf(position.y + BANK_SPEED * delta, fb_bottom_y)
+		if _is_on_far_bank():
+			position.y = minf(position.y + BANK_SPEED * delta, _far_bank_bottom_y())
 		else:
-			# Near bank — DOWN past the water edge enters wading
-			position.y = minf(position.y + BANK_SPEED * delta, _max_wade_y())
+			var spd := WADE_SPEED_V if is_wading else BANK_SPEED
+			var new_y := position.y + spd * delta
+			if _tile_at_y(new_y) not in [RiverConstants.TILE_DEEP, RiverConstants.TILE_BOULDER, RiverConstants.TILE_AIR]:
+				position.y = new_y
 	elif dy < 0.0:
 		if is_wading:
-			var ne_y := _near_bank_edge_y()
-			position.y = maxf(position.y - WADE_SPEED_V * delta, ne_y)
+			var new_y := position.y - WADE_SPEED_V * delta
+			if _tile_at_y(new_y) not in [RiverConstants.TILE_DEEP, RiverConstants.TILE_BOULDER]:
+				position.y = new_y
 		elif _is_on_far_bank():
-			# Far bank — move upward past bank edge to re-enter water.
-			# Don't cap at fb_top — let the angler cross into the water row above.
 			position.y -= BANK_SPEED * delta
 		else:
-			# Near bank — UP walks toward top of bank (row 0)
 			position.y = maxf(position.y - BANK_SPEED * delta, RiverConstants.TILE_SIZE * 0.5)
 
 	return dx != 0.0 or dy != 0.0
 
 
+# Tile type at the angler's current column and the given world y.
+func _tile_at_y(world_y: float) -> int:
+	if river_data == null:
+		return RiverConstants.TILE_DEEP
+	var col := clampi(int((position.x - section_start_x) / RiverConstants.TILE_SIZE),
+			0, river_data.width - 1)
+	var row := clampi(int(world_y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
+	return river_data.tile_map[col][row]
+
+
 # Maximum y the angler can reach in the current column.
-# Scans tile-by-tile from the near bank downward:
-#   TILE_DEEP → angler stops at the last passable row above it (dark blue = not wadable)
-#   TILE_RIVERBED without TILE_DEEP → ford/shallow crossing, angler can reach far bank
-#   TILE_BANK (far bank) → crossable, land on it
-# Fords always lack TILE_DEEP (depth_val ≤ 0.35 generates no deep tiles), so they are
-# always fully crossable. Weed beds and gravel bars sit on surface/mid tiles — passable.
+# Only TILE_BANK (far bank) and TILE_BOULDER are impassable — everything else is wadable.
 func _max_wade_y() -> float:
 	if river_data == null:
 		return BANK_Y + float(4 * RiverConstants.TILE_SIZE)
@@ -140,19 +146,11 @@ func _max_wade_y() -> float:
 	for row in range(water_start, river_data.height):
 		var t: int = river_data.tile_map[col][row]
 		match t:
-			RiverConstants.TILE_DEEP:
-				# Stop at the center of the last passable row (one above TILE_DEEP)
+			RiverConstants.TILE_DEEP, RiverConstants.TILE_BOULDER:
 				if row == water_start:
-					return _near_bank_edge_y()  # deep starts immediately — can't enter
+					return _near_bank_edge_y()
 				return float(row - 1) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
-			RiverConstants.TILE_RIVERBED:
-				# No TILE_DEEP in this column — ford or shallow section, far bank reachable
-				if river_data.bottom_bank_profile.size() > col:
-					var fbr: int = river_data.bottom_bank_profile[col]
-					return float(fbr) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
-				return float(row) * RiverConstants.TILE_SIZE
 			RiverConstants.TILE_BANK:
-				# Far bank tile reached directly — land on it
 				return float(row) * RiverConstants.TILE_SIZE + RiverConstants.TILE_SIZE * 0.5
 
 	# Fallback — should not be reached with a valid tile map
@@ -185,7 +183,8 @@ func _sync_wading_state() -> void:
 				0, river_data.width - 1)
 		var row := clampi(int(position.y / RiverConstants.TILE_SIZE), 0, river_data.height - 1)
 		current_tile = river_data.tile_map[col][row]
-		is_wading = (current_tile != RiverConstants.TILE_BANK and current_tile != RiverConstants.TILE_AIR)
+		is_wading = (current_tile != RiverConstants.TILE_BANK and current_tile != RiverConstants.TILE_AIR \
+				and current_tile != RiverConstants.TILE_BOULDER)
 	else:
 		is_wading = position.y > BANK_Y + 1.0
 
@@ -196,7 +195,6 @@ func _sync_wading_state() -> void:
 			RiverConstants.TILE_SURFACE:          wading_depth = 0.25
 			RiverConstants.TILE_MID_DEPTH:        wading_depth = 0.60
 			RiverConstants.TILE_DEEP:             wading_depth = 1.00
-			RiverConstants.TILE_RIVERBED:         wading_depth = 0.85
 			RiverConstants.TILE_WEED_BED:         wading_depth = 0.30
 			RiverConstants.TILE_GRAVEL_BAR:       wading_depth = 0.30
 			RiverConstants.TILE_ROCK:             wading_depth = 0.50

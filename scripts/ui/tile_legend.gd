@@ -12,7 +12,6 @@ const _ENTRIES: Array = [
 	[ RiverConstants.TILE_SURFACE,       "Shallow water", "Safe to wade; fast riffles in narrow sections" ],
 	[ RiverConstants.TILE_MID_DEPTH,     "Mid depth",     "Wadable; some resistance from current" ],
 	[ RiverConstants.TILE_DEEP,          "Deep channel",  "Impassable — too deep to wade (dark blue)" ],
-	[ RiverConstants.TILE_RIVERBED,      "Riverbed",      "Bottom of crossable fords; far bank reachable" ],
 	[ RiverConstants.TILE_WEED_BED,      "Weed bed",      "Insect habitat; shallow hold; wadable" ],
 	[ RiverConstants.TILE_ROCK,          "Rock",          "Creates eddy & seam downstream; fish holding" ],
 	[ RiverConstants.TILE_BOULDER,       "Boulder",       "Large rock; strong eddy; prime holding water" ],

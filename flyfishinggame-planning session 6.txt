@@ -1,0 +1,115 @@
+Building a Fly Fishing Game, Part 6: Making the River Look Like a River
+
+The game was fully playable after Phase 8. All the systems worked — fish held in pools, rose to hatches, spooked from bad approaches, ended up in the logbook. The PoC loop was closed.
+
+But the river looked like a diagram.
+
+The depth-field rendering rewrite from the tail end of the last session had solved the structural problem — no more tile seams, no more visible grid — but the result was too clean, too high-contrast, too obviously synthetic. This session was about making it look like water.
+
+---
+
+Turn the Contrast Down
+
+The first request was simple: reduce the effect 25%.
+
+The new renderer was doing its job too visibly. Deep water was very dark, shallow water was very light, and every depth transition announced itself. Real rivers aren't like that. In good light they're a mosaic of similar colours with subtle cues. In poor light everything compresses toward a uniform blue-grey. The gradient needed to be quieter.
+
+Scaled the colour stops back toward their neutral values, brought deep and mid-deep closer together, softened the difference between surface water and the first metre of depth. The river stopped looking like a depth chart.
+
+---
+
+Rocks Belong in the Water, Not on It
+
+The rock polygons were the next problem. They looked pasted. Hard outlines, high opacity, no interaction with the water around them.
+
+Two changes. First, softened the polygons themselves — reduced opacity, thinned the outlines to 1 px antialiased, lightened the drop shadow to near-transparent. Second, added an upstream water-pressure crescent: a pale blue-white filled arc against the upstream face of each rock, suggesting water piling up before it splits around the obstruction.
+
+That handles the upstream side. The downstream side needed something different — not just a visual cue, but ecologically meaningful holding water. More on that below.
+
+---
+
+Gravel and Weeds Look Different Now
+
+Before this session, weed beds and gravel bars were nearly the same colour. They're the two most important bottom structure types in a trout stream — gravel for spawning, weeds for invertebrates and cover — and they were indistinguishable.
+
+The fix was adding explicit colour stops to the depth gradient at the values where weed tiles and gravel tiles naturally cluster. Gravel gets a warm sandy tan. Weed beds get a darker blue-teal. Because the depth map is blurred before the gradient is applied, these stops produce organic colour patches rather than tile outlines. The weed bed colour bleeds into surrounding water the way actual weed does.
+
+---
+
+The Green Problem
+
+Then there was the transition between shallow water and mid-depth.
+
+It was green.
+
+Not dramatically green — subtle enough that the user had to look twice to name it. But once you see it, you see it every time. Water shouldn't look green. Not on a Montana freestone river.
+
+The cause was interpolation. The gradient had bank grass (obviously green) at one end and various blue-teal water stops further along. In between, the intermediate stops had enough green in them that the interpolation blended through a noticeable green band in the 1.5–2.5 depth range. Even tiles with no weed at all had a faint green cast.
+
+The user raised it three times before we found the fix.
+
+The fix was making every water-range stop clearly blue-dominant. Not just the waterline — the weed bed stop too. As long as any stop in the shallow-to-mid range has significant green, the interpolation will carry it into adjacent zones. Once all the water stops were comfortably in the blue-teal family, the green band disappeared.
+
+---
+
+Texture
+
+Smooth gradients are flat. Real rivers have surface texture — flow bands catching different light at slightly different angles, caustic sparkle where shallow water refracts over a gravel bottom.
+
+Added two-frequency sinusoidal flow bands keyed on the pixel's column position and depth rank. Two overlapping sine waves at slightly different frequencies produce beats — natural-looking irregular bands that suggest current direction without animation. A rare caustic sparkle pixel (roughly 1 in 200, in shallow zones only) adds the characteristic light-play of a riffle.
+
+Both effects are baked into the static chunk textures at render time. No per-frame cost. The river looks like it has texture even though nothing is moving.
+
+---
+
+Wider Water
+
+The river was too narrow. Too much of the screen was bank.
+
+Two changes. Increased MAX_DEPTH_TILES from 22 to 25, which directly widens the water column. And changed the far bank to fill all rows from the riverbed to the bottom of the grid — previously there was dead TILE_AIR space at the screen bottom, a gap below the far bank tiles that served no purpose. Filling it with bank extends the far bank to the screen edge.
+
+The result: water occupies most of the screen width. The banks are present but the river dominates.
+
+---
+
+Wake Behind the Boulders
+
+A boulder in a river creates three distinct zones of disturbed water downstream. Directly behind it — in the void where current simply doesn't reach — is dead water: slow, calm, protected. Flanking the dead water are side eddies: reverse-current pockets where water curls back upstream. Further downstream, a spreading V-wake of turbulence extends 10–15 rock-widths before fading into the main current.
+
+The dead-water zone is the prime holding lie. A trout sitting there expends almost no energy while insects drift past on the current seams on either side. Any angler who's fished a riffle knows to cast just downstream of a boulder.
+
+These zones are written directly into the depth map before the chunk images are baked. Higher depth rank means the gradient renders darker — so dead water reads as darker than the adjacent current, just as it is in reality: slower, deeper-feeling water with less light scatter. The wake fades naturally via the blur pass.
+
+The boulders now look like they're in the river because the river is reacting to them.
+
+---
+
+Five Times the Fish
+
+The original fish counts were remnants of early tuning. Arcade had 26 fish per section. Standard had 18. Sim had 12.
+
+At those densities the fish ecology mechanics are mostly theoretical. You can walk through half the section without seeing a fish. The feeding edge logic, the spook geometry, the intrusion memory system — all of it exists for encounters that rarely happen.
+
+Increased 5×. Arcade 130, Standard 90, Sim 60. The minimum spacing constraint (48 pixels) prevents stacking, and the hold candidate pool is large enough that fish find distinct positions. At these densities the river feels populated. Feeding edges have fish on them. Working a riffle means navigating around spook radii that actually overlap.
+
+One housekeeping note: fish_per_section is seeded into the SQLite database on first run and not re-seeded unless the database is deleted. Changing the values in code without deleting the database has no effect at runtime.
+
+---
+
+Two Parse Errors and a Cascade
+
+One change in the boulder wake code triggered a cascade of errors that traced back to GDScript type inference.
+
+The loop used `for side in [-1, 1]` to iterate over the two lateral directions. GDScript infers the type of `side` from the array literal — and because the literal `[-1, 1]` is untyped, `side` becomes Variant. Arithmetic on Variant produces an unresolvable type. The compiler refused to infer the type of variables derived from it.
+
+This parse error in the renderer caused the whole file to fail. The TileMap node in the scene tree couldn't load its script. The @onready assignment failed silently. The sections array was empty. The angler was never initialised. Then the first frame of _process tried to read global_position on null, and the error showed up pointing at _process — nowhere near the actual cause.
+
+Fixed by adding explicit `int` type annotations on the Variant-derived variables and casting `side` explicitly with `int(side)`. Also replaced `absi()` (not universally available) with `abs()` throughout.
+
+---
+
+Where Things Stand
+
+The river now looks like a river. Organic colour transitions, visible surface texture, rocks embedded in moving water with upstream bow waves and downstream holding zones, gravel bars visually distinct from weed beds, and enough fish to make the ecology legible.
+
+The PoC loop is still intact. All the Phase 1–8 systems work. This session was purely rendering and balance — no architecture changes, no new systems. The game is in a playable, visually coherent state.

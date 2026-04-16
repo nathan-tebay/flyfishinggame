@@ -129,8 +129,12 @@ func _spawn_indicator() -> void:
 	var fly_pos := casting.get_fly_pos()
 	var ind     := StrikeIndicator.new()
 	ind.position = Vector2(fly_pos.x, 108.0)
-	ind.visible  = _is_nymph   # nymph: visible immediately; dry: only on take
-	_indicator   = ind
+	ind.visible  = true
+	if _is_nymph:
+		pass   # nymph ball draws by default
+	else:
+		ind.start_dry_float()   # subtle hackle dot until take
+	_indicator = ind
 	get_parent().add_child(ind)
 
 

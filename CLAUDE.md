@@ -56,7 +56,7 @@ Key versions (update in `run.sh` when upgrading):
 | `RiverConstants` | `scripts/river/river_constants.gd` — all tile IDs, sizes, colors. Access as `RiverConstants.TILE_SIZE` etc. |
 | `RiverData` | `scripts/river/river_data.gd` — plain data struct: depth_profile, current_map, tile_map, hold_scores, structures, top_holds |
 | `RiverGenerator` | `scripts/river/river_generator.gd` — full pipeline: depth profile (FastNoiseLite) → tile map → current map → structure placement → eddy currents → hold scoring → top holds. Seeded deterministically. |
-| `RiverRenderer` | `scripts/river/river_renderer.gd` — extends TileMap, builds programmatic placeholder tileset, renders RiverData to 3 layers (Base/Structures/Debug) |
+| `RiverRenderer` | `scripts/river/river_renderer.gd` — extends TileMap (scene compat only; tile layers unused). Renders via continuous depth-field pipeline: (1) float depth map from `_DEPTH_RANK_F` per tile type, (2) 2-pass separable box blur for organic transitions, (3) rock bow-wave/wake disturbance pass, (4) current-map lightening pass (fast riffles brighter), (5) 24 × Sprite2D chunks (1920×960 px each) baked from a bilinear depth→colour gradient (`_DEPTH_STOPS`), (6) rock/boulder clusters as Polygon2D + Line2D child nodes with 3-zone boulder wake (dead water, side eddies, V-wake). Hold score debug overlay via Polygon2D squares (`,` key). |
 | `RiverCamera` | `scripts/camera/river_camera.gd` — horizontal-only Camera2D, section-clamped. `set_anchor(world_x)` constrains scout range to ±3 screen widths |
 | `Angler` | `scenes/Angler.tscn`, `scripts/angler/angler.gd` — Player movement (bank/wading), vibration radius, standing-still signal. Shadow cone is a child Node2D. |
 | `CastingController` | `scripts/casting/casting_controller.gd` — State machine IDLE→FALSE_CASTING→PRESENTATION→RESULT→DRIFT→IDLE. Line feed/strip, false cast rhythm (scales with line length), mouse mend detection, emits `cast_result(quality, target_x, target_y)` and mend signals |
@@ -132,6 +132,7 @@ TileMap starts at world y=0. Key y positions (TILE_SIZE=32):
 - `BANK_Y = 80.0` — angler reference point on bank (centre of bottom bank row)
 - `WADE_ENTRY_Y = 96` — water surface (row 3 = `BANK_H_TILES * TILE_SIZE`)
 - `MAX_WADE_Y = 256` — 5 tiles below surface (hard cap; actual river depth may be shallower)
+- Far bank (bottom) fills all rows from `riverbed_row + 1` to `RIVER_H_TILES - 1`; no AIR tiles at bottom. `MAX_DEPTH_TILES = 25` (increased from 22 to widen the river cross-section).
 
 Camera follows `Angler.position.x` (with smoothing). `set_anchor()` constrains limits to ±3 screen widths from angler x. When `follow_target` is null, Phase 2 free-pan mode is active.
 
@@ -176,3 +177,53 @@ Camera follows `Angler.position.x` (with smoothing). `set_anchor()` constrains l
 **Debug print policy**
 - All `print()` calls in release-path code wrapped with `if OS.is_debug_build():`.
 - Applies to: FishAI state/lockdown/take messages, RiverWorld section events, cast results, angler standing-still.
+
+### Post-Phase-8 Polish — River Rendering (Sessions 6–7)
+
+Changes made after Phase 8 completion, not tracked in TASKS.md phases:
+
+**`RiverRenderer` depth-field constants (tuning knobs):**
+- `_DEPTH_RANK_F` — float depth rank per tile type (0.0 bank → 4.0 deep). Drives blur and gradient. `TILE_LOG = 2.6`.
+- `_DEPTH_STOPS` — multi-stop colour gradient: bank grass (0.0) → gravel tan (1.1) → blue-teal waterline (1.5) → surface blue (2.0) → weed blue-teal (2.4) → mid-depth (3.0) → deep navy (4.0).
+- Blur: 2 passes separable 3-tap box blur → ~4-tile (~128 px) transition width.
+- Noise: coarse `±0.06` + fine `±0.025` per pixel; two-frequency sinusoidal flow bands in water zones; caustic sparkle in shallows.
+
+**Boulder wake zones (in `_apply_rock_effects`):**
+- Zone 1: dead-water (1–4 tiles downstream, wide) — prime holding lie, darkest colour.
+- Zone 2: side eddies (1–7 tiles, flanking) — reverse-current pockets each side.
+- Zone 3: V-wake (5–14 tiles) — spreading turbulence fading back to normal water.
+- Upstream bow wave (1–5 tiles) lightens water against rock face, capped at surface-water depth.
+- Regular rocks have a simpler 1–6 tile V-wake only.
+- **Wake seam lines** (`_add_wake_seams`): teardrop-shaped Line2D pairs along wake edges, alpha-faded, confined to water column bounds. Applied to both boulders and regular rocks.
+
+**River generator additions (Session 7):**
+- `MIN_DEPTH_TILES = 14` — minimum river width raised from 4 to 14 tiles.
+- `_place_islands()` — sine-tapered TILE_BANK strips mid-channel, 10–22 tiles long, 120–320 tile spacing.
+- `TILE_LOG (id=10)` — driftwood logs placed at bank-edge water tiles, 4–9 tiles wide, ~7 per section.
+
+**Bank features (`_build_bank_features`):**
+- Covers every bank tile on both near and far banks (1 row clearance from water).
+- Near/far bank clearance conditions checked independently — `ty < far_start` gate.
+- Trees: 6.25% exclusive. Bushes: ~89% continuous ground cover. Boulders: 30% independent roll.
+- All three are texture patches (overlapping small ellipses), not individual props — except trees which remain recognisable.
+- Patch centres jittered within tile: `rng.randf_range(ts×0.1, ts×0.9)` on both axes.
+- Bush patch: 5–9 blobs, spread ts×0.57, radius ts×0.135–0.30.
+- Boulder patch: 3–5 blobs, spread ts×0.42, radius ts×0.105–0.24.
+
+**Driftwood (`_build_log_nodes`):**
+- Three variants: straight (40%), tapered (35%), forked (25%).
+- Angle bias: ~40% near-perpendicular (62–86°), 30% mid-angle, 30% shallow.
+- Weathered grey palette (`_bark_colors`), 2–5 dead branch stubs per log.
+
+**Loading screen (`scripts/ui/loading_screen.gd`):**
+- Node2D `_draw()` overlay shown during river generation.
+- `river_world._ready()` is async: show → `await process_frame × 2` → generate → hide.
+
+**Angler z-index:** `z_index = 5` in `Angler._ready()` — renders above all bank feature overlays (max z_index 2).
+
+**Fish counts (post-polish, 5× from Phase 8 defaults):**
+- Arcade: 130 / Standard: 90 / Sim: 60 per section.
+- `_find_top_holds` keeps `fish_per_section × 3` candidates; the spawner iterates them and enforces `MIN_FISH_DIST = 48 px`.
+- **After changing `fish_per_section`, delete `user://flyfishing.db`** so the DB re-seeds from the new defaults.
+
+**Orphaned file:** `scripts/river/river_overlay.gd` — was created to fix an inner-class `_draw()` dispatch issue, superseded by the Sprite2D/Polygon2D approach. Can be deleted.
