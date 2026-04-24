@@ -1,6 +1,8 @@
 class_name RiverRenderer
 extends TileMap  # kept for scene-tree compatibility; tile layers are unused
 
+const _SpriteCatalog = preload("res://scripts/assets/sprite_catalog.gd")
+
 # River rendered as a continuous depth field.
 #
 # Pipeline per section:
@@ -45,6 +47,42 @@ const _DEPTH_STOPS: Array = [
 	[4.0, Color(0.07, 0.20, 0.50)],   # deep channel
 ]
 
+const _TREE_REGIONS: Array = [
+	Rect2i(669, 88, 146, 331),
+	Rect2i(421, 89, 178, 328),
+	Rect2i(320, 495, 231, 346),
+	Rect2i(608, 565, 201, 268),
+	Rect2i(739, 991, 144, 260),
+]
+
+const _BOULDER_REGIONS: Array = [
+	Rect2i(1336, 123, 120, 108),
+	Rect2i(1494, 129, 131, 99),
+	Rect2i(1666, 131, 118, 102),
+	Rect2i(572, 161, 105, 95),
+	Rect2i(708, 176, 73, 69),
+	Rect2i(1348, 251, 117, 86),
+]
+
+const _GRASS_REGIONS: Array = [
+	Rect2i(820, 1188, 151, 183),
+	Rect2i(1424, 1189, 175, 210),
+	Rect2i(1184, 1177, 158, 193),
+	Rect2i(200, 1196, 158, 167),
+]
+
+const _WEED_REGIONS: Array = [
+	Rect2i(651, 474, 237, 193),
+	Rect2i(232, 480, 153, 156),
+	Rect2i(426, 480, 191, 176),
+]
+
+const _LOG_REGIONS: Array = [
+	Rect2i(963, 472, 299, 176),
+	Rect2i(1256, 494, 252, 148),
+	Rect2i(1807, 513, 189, 135),
+]
+
 var _river_data: RiverData = null
 
 # Child nodes — freed and rebuilt on each render() call.
@@ -58,6 +96,9 @@ var _map_height: int = 0
 
 # Depth-tile image cache — key encodes quantised corner depths.
 var _depth_tile_cache: Dictionary = {}
+var _tree_texture: Texture2D = null
+var _boulder_texture: Texture2D = null
+var _feature_texture: Texture2D = null
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +107,7 @@ var _depth_tile_cache: Dictionary = {}
 
 func render(data: RiverData) -> void:
 	_river_data = data
+	_ensure_prop_textures()
 	_clear_chunks()
 	_clear_rock_nodes()
 	_depth_tile_cache.clear()
@@ -75,6 +117,7 @@ func render(data: RiverData) -> void:
 	_build_chunks(data)
 	_build_rock_clusters(data)
 	_build_log_nodes(data)
+	_build_weed_feature_sprites(data)
 	_build_bank_features(data)
 
 
@@ -625,6 +668,8 @@ func _build_log_nodes(data: RiverData) -> void:
 			angle = rng.randf_range(62.0, 86.0) * (1.0 if rng.randf() > 0.5 else -1.0)
 
 		var length := float(sw) * ts * (0.80 + rng.randf() * 0.30)
+		if _draw_log_sprite(cx, cy, length, angle, rng):
+			continue
 
 		# Shape variant: 40% straight, 35% tapered, 25% forked
 		var sv := _hash(sx * 11 + 1, sy * 7 + 5)
@@ -815,6 +860,73 @@ func _draw_driftwood_forked(cx: float, cy: float, length: float,
 
 
 # ---------------------------------------------------------------------------
+# Sprite props — selected atlas regions layered over procedural terrain
+# ---------------------------------------------------------------------------
+
+func _ensure_prop_textures() -> void:
+	if _tree_texture == null:
+		_tree_texture = load(_SpriteCatalog.TREES) as Texture2D
+	if _boulder_texture == null:
+		_boulder_texture = load(_SpriteCatalog.BOULDERS) as Texture2D
+	if _feature_texture == null:
+		_feature_texture = load(_SpriteCatalog.RIVER_ENVIRONMENT_FEATURES) as Texture2D
+
+
+func _add_prop_sprite(texture: Texture2D, region: Rect2i, base_pos: Vector2,
+		target_width: float, z: int = 2, centered: bool = false,
+		rotation_deg: float = 0.0, modulate: Color = Color.WHITE) -> bool:
+	if texture == null:
+		return false
+	var sprite := Sprite2D.new()
+	sprite.texture = texture
+	sprite.region_enabled = true
+	sprite.region_rect = region
+	sprite.centered = centered
+	sprite.position = base_pos
+	sprite.scale = Vector2.ONE * (target_width / float(region.size.x))
+	sprite.rotation_degrees = rotation_deg
+	sprite.modulate = modulate
+	sprite.z_index = z
+	add_child(sprite)
+	_rock_nodes.append(sprite)
+	return true
+
+
+func _pick_region(regions: Array, rng: RandomNumberGenerator) -> Rect2i:
+	return regions[rng.randi_range(0, regions.size() - 1)] as Rect2i
+
+
+func _build_weed_feature_sprites(data: RiverData) -> void:
+	if _feature_texture == null:
+		return
+	var ts := float(RiverConstants.TILE_SIZE)
+	for structure: Dictionary in data.structures:
+		if (structure["type"] as int) != RiverConstants.TILE_WEED_BED:
+			continue
+		var sx: int = structure["x"]
+		var sy: int = structure["y"]
+		var sw: int = structure["w"]
+		var sh: int = structure["h"]
+		var rng := RandomNumberGenerator.new()
+		rng.seed = data.seed ^ (sx * 3811) ^ (sy * 9437)
+		var region := _pick_region(_WEED_REGIONS, rng)
+		var cx := (float(sx) + float(sw) * 0.5) * ts
+		var cy := (float(sy) + float(sh) * 0.5) * ts
+		_add_prop_sprite(_feature_texture, region, Vector2(cx, cy),
+				float(sw) * ts * rng.randf_range(0.75, 1.05), 1, true,
+				rng.randf_range(-8.0, 8.0), Color(1.0, 1.0, 1.0, 0.78))
+
+
+func _draw_log_sprite(cx: float, cy: float, length: float, angle: float,
+		rng: RandomNumberGenerator) -> bool:
+	if _feature_texture == null:
+		return false
+	var region := _pick_region(_LOG_REGIONS, rng)
+	return _add_prop_sprite(_feature_texture, region, Vector2(cx, cy),
+			length, 2, true, angle, Color(1.0, 1.0, 1.0, 0.92))
+
+
+# ---------------------------------------------------------------------------
 # Bank features — scattered trees, bushes, boulders on bank tiles
 # ---------------------------------------------------------------------------
 
@@ -856,6 +968,14 @@ func _build_bank_features(data: RiverData) -> void:
 
 
 func _draw_bank_tree(wx: float, wy: float, ts: float, rng: RandomNumberGenerator) -> void:
+	if _tree_texture != null:
+		var region := _pick_region(_TREE_REGIONS, rng)
+		var width := ts * rng.randf_range(1.55, 2.35)
+		var scale := width / float(region.size.x)
+		var sprite_pos := Vector2(wx, wy - float(region.size.y) * scale * 0.5)
+		_add_prop_sprite(_tree_texture, region, sprite_pos, width, 3, true)
+		return
+
 	var trunk_h := ts * (0.70 + rng.randf() * 0.50)
 	var crown_r := ts * (0.75 + rng.randf() * 0.55)
 	var lean    := rng.randf_range(-ts * 0.14, ts * 0.14)
@@ -931,6 +1051,13 @@ func _draw_bank_tree(wx: float, wy: float, ts: float, rng: RandomNumberGenerator
 
 
 func _draw_bank_bush(wx: float, wy: float, ts: float, rng: RandomNumberGenerator) -> void:
+	if _feature_texture != null and rng.randf() < 0.45:
+		var region := _pick_region(_GRASS_REGIONS, rng)
+		var width := ts * rng.randf_range(1.0, 1.65)
+		_add_prop_sprite(_feature_texture, region, Vector2(wx, wy), width, 2, true,
+				rng.randf_range(-4.0, 4.0), Color(1.0, 1.0, 1.0, 0.86))
+		return
+
 	# Texture-patch approach: 5-9 small overlapping blobs — no distinct object silhouette
 	var n      := rng.randi_range(5, 9)
 	var spread := ts * 0.57   # 1.5× (was 0.38)
@@ -948,6 +1075,12 @@ func _draw_bank_bush(wx: float, wy: float, ts: float, rng: RandomNumberGenerator
 
 
 func _draw_bank_boulder(wx: float, wy: float, ts: float, rng: RandomNumberGenerator) -> void:
+	if _boulder_texture != null:
+		var region := _pick_region(_BOULDER_REGIONS, rng)
+		var width := ts * rng.randf_range(0.55, 1.35)
+		_add_prop_sprite(_boulder_texture, region, Vector2(wx, wy), width, 2, true)
+		return
+
 	# Texture-patch approach: 3-5 small gray blobs — rocky scatter, no shading or cracks
 	var n      := rng.randi_range(3, 5)
 	var spread := ts * 0.42   # 1.5× (was 0.28)

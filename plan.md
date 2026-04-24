@@ -21,7 +21,7 @@ The sprite pack is located under `assets/sprites/` and includes one uniform cast
 | `[x]` | 3 | Implement angler movement/wading sprite regions from `angler_moving_*`; choose frame regions manually and support directional/wading animations. | `high` |
 | `[x]` | 4 | Replace or augment fish procedural rendering with species sprite atlas regions; preserve opacity/depth/state telegraph behavior. | `high` |
 | `[x]` | 5 | Add dry-fly, insect, and rise/splash sprites where they fit existing drift/hookset flow. | `medium` |
-| `[ ]` | 6 | Add props from trees/boulders/river features as decorative `Sprite2D` overlays while keeping the procedural river renderer. | `high` |
+| `[x]` | 6 | Add props from trees/boulders/river features as decorative `Sprite2D` overlays while keeping the procedural river renderer. | `high` |
 | `[ ]` | 7 | Optional larger refactor: convert terrain/water sheets into TileSet/TileMap layers. This conflicts with the current continuous depth-field renderer, so it should be its own design session. | `xhigh` |
 
 ## Step Tracking
@@ -85,10 +85,18 @@ Session 5 notes:
 
 ### Session 6: Decorative Props
 
-- `[ ]` Select tree, boulder, and river feature regions.
-- `[ ]` Add sprite overlay placement while preserving procedural river generation.
-- `[ ]` Add Y-sort/collision considerations for large props.
-- `[ ]` Verify section generation performance.
+- `[x]` Select tree, boulder, and river feature regions.
+- `[x]` Add sprite overlay placement while preserving procedural river generation.
+- `[x]` Add Y-sort/collision considerations for large props.
+- `[x]` Verify section generation performance.
+
+Session 6 notes:
+
+- Uses selected regions from `trees_transparent_sheet.png`, `boulders_transparent_sheet.png`, and `river_environment_features_transparent_sheet.png`.
+- Replaces generated bank trees/boulders with sprite overlays when textures are available, with procedural drawing retained as fallback.
+- Adds sprite overlays for grass/bank cover, submerged weed beds, and log structures while preserving the continuous river renderer.
+- Uses z-index ordering for visual layering; no collision was added because movement remains tile-based and these are decorative props.
+- Verified with a 60-frame RiverWorld generation/runtime check.
 
 ### Session 7: Optional TileSet Refactor
 
