@@ -1,6 +1,8 @@
 class_name FishRenderer
 extends Node2D
 
+const _SpriteCatalog = preload("res://scripts/assets/sprite_catalog.gd")
+
 # Top-down fish rendering.
 # Fish face upstream (left, -x). Tail is downstream (+x).
 # Body shape: tapered fusiform silhouette with dorsal ridge, pectoral fins,
@@ -30,6 +32,30 @@ const STATE_LABEL_COLORS: Array = [
 ]
 
 const STATE_NAMES: Array = ["FEEDING", "ALERT", "SPOOKED", "RELOCATING", "HOLDING"]
+const SPRITE_TARGET_LENGTH: Array = [34.0, 48.0, 68.0]
+
+# Regions are hand-selected top-down swim frames. Atlas fish face upward; drawing rotates
+# them -90 degrees so they match the existing upstream-left gameplay orientation.
+const SPRITE_REGIONS: Array = [
+	[
+		Rect2i(82, 122, 92, 296),
+		Rect2i(282, 124, 92, 298),
+		Rect2i(492, 124, 94, 294),
+		Rect2i(692, 130, 98, 292),
+	],
+	[
+		Rect2i(48, 82, 72, 206),
+		Rect2i(180, 84, 72, 210),
+		Rect2i(318, 84, 72, 206),
+		Rect2i(452, 88, 78, 204),
+	],
+	[
+		Rect2i(80, 126, 108, 300),
+		Rect2i(280, 126, 108, 304),
+		Rect2i(490, 126, 108, 300),
+		Rect2i(690, 132, 110, 294),
+	],
+]
 
 var _species: int = 0
 var _size_class: int = 0
@@ -43,6 +69,9 @@ var _body_len: float = 17.0   # half-length
 var _body_wid: float = 6.0    # max half-width
 var _base_color: Color = Color.WHITE
 var _variant_seed: int = 0
+var _sprite_texture: Texture2D = null
+var _sprite_regions: Array = []
+var _sprite_anim_offset: int = 0
 
 
 func initialize(species: int, size_class: int, seed: int, river_data: RiverData,
@@ -65,6 +94,9 @@ func initialize(species: int, size_class: int, seed: int, river_data: RiverData,
 	var sat: float = BASE_SAT[species] as float
 	var val: float = BASE_VAL[species] as float
 	_base_color = Color.from_hsv(fmod(hue, 1.0), sat, val)
+	_sprite_texture = _load_species_texture(species)
+	_sprite_regions = SPRITE_REGIONS[species] as Array if species < SPRITE_REGIONS.size() else []
+	_sprite_anim_offset = absi(seed) % maxi(_sprite_regions.size(), 1)
 
 
 func update(display_state: int, intrusion_memory: float) -> void:
@@ -90,6 +122,11 @@ func _draw() -> void:
 		body_col = body_col.lerp(Color(1.0, 0.05, 0.05), 0.45 * telegraph)
 
 	body_col.a = opacity
+
+	if _draw_sprite_fish(opacity):
+		_draw_state_label()
+		return
+
 	var shadow_col := Color(0.0, 0.0, 0.0, opacity * 0.28)
 	var fin_col    := Color(body_col.r * 0.80, body_col.g * 0.80, body_col.b * 0.75, opacity * 0.88)
 	var belly_col  := Color(
@@ -331,3 +368,57 @@ func _compute_opacity() -> float:
 
 	var light_factor := 0.28 + TimeOfDay.light_level * 0.72
 	return clampf(depth_factor * light_factor, 0.12, 1.0)
+
+
+func _draw_sprite_fish(opacity: float) -> bool:
+	if _sprite_texture == null or _sprite_regions.is_empty():
+		return false
+
+	var frame_idx := (int(Time.get_ticks_msec() / 220) + _sprite_anim_offset) % _sprite_regions.size()
+	var region := _sprite_regions[frame_idx] as Rect2i
+	var target_length := SPRITE_TARGET_LENGTH[_size_class] as float
+	var scale := target_length / float(region.size.y)
+	var draw_size := Vector2(float(region.size.x), float(region.size.y))
+	var draw_rect := Rect2(-draw_size * 0.5, draw_size)
+
+	draw_set_transform(Vector2(1.8, 2.2), -PI * 0.5, Vector2(scale, scale))
+	draw_texture_rect_region(
+			_sprite_texture,
+			draw_rect,
+			region,
+			Color(0.0, 0.0, 0.0, opacity * 0.25)
+	)
+
+	draw_set_transform(Vector2.ZERO, -PI * 0.5, Vector2(scale, scale))
+	draw_texture_rect_region(
+			_sprite_texture,
+			draw_rect,
+			region,
+			_sprite_modulate(opacity)
+	)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	return true
+
+
+func _sprite_modulate(opacity: float) -> Color:
+	var telegraph: float = GameManager.difficulty.fish_telegraph_strength
+	var modulate := Color(1.0, 1.0, 1.0, opacity)
+
+	if telegraph > 0.0 and _intrusion_memory > 0.0:
+		var t := clampf(_intrusion_memory * 0.25, 0.0, 1.0) * telegraph
+		modulate = modulate.lerp(Color(1.0, 0.50, 0.44, opacity), t)
+
+	if _display_state == 1:
+		modulate = modulate.lerp(Color(1.0, 0.92, 0.45, opacity), 0.30 * telegraph)
+	elif _display_state == 2 or _display_state == 3:
+		modulate = modulate.lerp(Color(1.0, 0.42, 0.36, opacity), 0.45 * telegraph)
+
+	modulate.a = opacity
+	return modulate
+
+
+func _load_species_texture(species: int) -> Texture2D:
+	var path := _SpriteCatalog.FISH_BY_SPECIES.get(species, "") as String
+	if path.is_empty():
+		return null
+	return load(path) as Texture2D

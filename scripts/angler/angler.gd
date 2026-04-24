@@ -21,6 +21,21 @@ const STILL_THRESHOLD := 3.0  # seconds motionless before signal
 const ANIM_IDLE := &"idle"
 const ANIM_CAST_OVERHEAD := &"cast_overhead"
 const CAST_FPS := 12.0
+const MOVE_FPS := 6.0
+const MOVING_FRAME_SIZE := Vector2i(150, 255)
+const MOVING_COL_X := [32, 188, 340, 496, 650, 804, 976, 1140, 1316]
+const MOVING_ROW_Y := [0, 278, 548, 824, 1090, 1344, 1588, 1793]
+const DIRECTION_ROWS := {
+	"north": 0,
+	"east": 2,
+	"south": 4,
+	"west": 6,
+}
+const TERRAIN_COLUMNS := {
+	"land": [0, 1, 2],
+	"shallow": [3, 4, 5],
+	"mid": [6, 7, 8],
+}
 
 signal standing_still
 
@@ -35,6 +50,9 @@ var section_start_x: float = 0.0  # world x of the current section's left edge
 var _still_timer: float = 0.0
 var _was_still: bool = false
 var is_moving: bool = false   # public — read by FishAI for SpookCalculator
+var _movement_input := Vector2.ZERO
+var _last_facing := "south"
+var _visual_locked_by_cast := false
 
 @onready var _sprite: AnimatedSprite2D = $AnimatedSprite2D
 
@@ -52,6 +70,7 @@ func _process(delta: float) -> void:
 	_snap_to_bank_surface()
 	_sync_vibration()
 	_tick_still_timer(delta)
+	_update_movement_animation()
 	if _sprite == null or _sprite.sprite_frames == null:
 		queue_redraw()
 
@@ -59,54 +78,132 @@ func _process(delta: float) -> void:
 func play_cast_overhead() -> void:
 	if _sprite == null or _sprite.sprite_frames == null:
 		return
+	_visual_locked_by_cast = true
+	_sprite.position = Vector2(0.0, -48.0)
 	_sprite.play(ANIM_CAST_OVERHEAD)
 
 
 func reset_visual_state() -> void:
+	_visual_locked_by_cast = false
 	if _sprite == null or _sprite.sprite_frames == null:
 		queue_redraw()
 		return
-	_sprite.play(ANIM_IDLE)
+	_update_movement_animation(true)
 
 
 func _setup_cast_sprite() -> void:
 	if _sprite == null:
 		return
 
-	var texture := load(_SpriteCatalog.ANGLER_CAST_OVERHEAD) as Texture2D
-	if texture == null:
+	var cast_texture := load(_SpriteCatalog.ANGLER_CAST_OVERHEAD) as Texture2D
+	var moving_texture := load(_SpriteCatalog.ANGLER_MOVING_TRANSPARENT) as Texture2D
+	if cast_texture == null and moving_texture == null:
 		push_warning("Angler cast sprite texture could not be loaded.")
 		_sprite.visible = false
 		return
 
 	var frames := SpriteFrames.new()
 	frames.remove_animation(&"default")
-	frames.add_animation(ANIM_IDLE)
-	frames.set_animation_loop(ANIM_IDLE, true)
-	frames.set_animation_speed(ANIM_IDLE, 1.0)
-	frames.add_frame(ANIM_IDLE, _atlas_frame(texture, 0))
+	if moving_texture != null:
+		_add_movement_animations(frames, moving_texture)
+	else:
+		push_warning("Angler moving sprite texture could not be loaded; using cast ready frame for idle.")
+		frames.add_animation(ANIM_IDLE)
+		frames.set_animation_loop(ANIM_IDLE, true)
+		frames.set_animation_speed(ANIM_IDLE, 1.0)
+		frames.add_frame(ANIM_IDLE, _atlas_frame(cast_texture, 0, _SpriteCatalog.ANGLER_CAST_FRAME_SIZE))
 
-	frames.add_animation(ANIM_CAST_OVERHEAD)
-	frames.set_animation_loop(ANIM_CAST_OVERHEAD, false)
-	frames.set_animation_speed(ANIM_CAST_OVERHEAD, CAST_FPS)
-	for i in _SpriteCatalog.ANGLER_CAST_FRAMES:
-		frames.add_frame(ANIM_CAST_OVERHEAD, _atlas_frame(texture, i))
+	if cast_texture != null:
+		frames.add_animation(ANIM_CAST_OVERHEAD)
+		frames.set_animation_loop(ANIM_CAST_OVERHEAD, false)
+		frames.set_animation_speed(ANIM_CAST_OVERHEAD, CAST_FPS)
+		for i in _SpriteCatalog.ANGLER_CAST_FRAMES:
+			frames.add_frame(ANIM_CAST_OVERHEAD,
+					_atlas_frame(cast_texture, i, _SpriteCatalog.ANGLER_CAST_FRAME_SIZE))
 
 	_sprite.sprite_frames = frames
 	_sprite.centered = true
-	_sprite.play(ANIM_IDLE)
+	_update_movement_animation(true)
 
 
-func _atlas_frame(texture: Texture2D, frame_index: int) -> AtlasTexture:
+func _add_movement_animations(frames: SpriteFrames, texture: Texture2D) -> void:
+	for terrain in TERRAIN_COLUMNS.keys():
+		for direction in DIRECTION_ROWS.keys():
+			var anim := _movement_anim_name(terrain as String, direction as String)
+			frames.add_animation(anim)
+			frames.set_animation_loop(anim, true)
+			frames.set_animation_speed(anim, MOVE_FPS)
+			for col in TERRAIN_COLUMNS[terrain]:
+				frames.add_frame(anim, _moving_atlas_frame(
+						texture,
+						DIRECTION_ROWS[direction],
+						col as int
+				))
+
+	frames.add_animation(ANIM_IDLE)
+	frames.set_animation_loop(ANIM_IDLE, true)
+	frames.set_animation_speed(ANIM_IDLE, 1.0)
+	frames.add_frame(ANIM_IDLE, _moving_atlas_frame(
+			texture,
+			DIRECTION_ROWS["south"],
+			(TERRAIN_COLUMNS["land"] as Array)[0] as int
+	))
+
+
+func _atlas_frame(texture: Texture2D, frame_index: int, frame_size: Vector2i) -> AtlasTexture:
 	var frame := AtlasTexture.new()
 	frame.atlas = texture
 	frame.region = Rect2(
-		float(frame_index * _SpriteCatalog.ANGLER_CAST_FRAME_SIZE.x),
+		float(frame_index * frame_size.x),
 		0.0,
-		float(_SpriteCatalog.ANGLER_CAST_FRAME_SIZE.x),
-		float(_SpriteCatalog.ANGLER_CAST_FRAME_SIZE.y)
+		float(frame_size.x),
+		float(frame_size.y)
 	)
 	return frame
+
+
+func _moving_atlas_frame(texture: Texture2D, row: int, col: int) -> AtlasTexture:
+	var frame := AtlasTexture.new()
+	frame.atlas = texture
+	frame.region = Rect2(
+		float(MOVING_COL_X[col] as int),
+		float(MOVING_ROW_Y[row] as int),
+		float(MOVING_FRAME_SIZE.x),
+		float(MOVING_FRAME_SIZE.y)
+	)
+	return frame
+
+
+func _update_movement_animation(force: bool = false) -> void:
+	if _visual_locked_by_cast or _sprite == null or _sprite.sprite_frames == null:
+		return
+
+	if _movement_input != Vector2.ZERO:
+		if absf(_movement_input.x) > absf(_movement_input.y):
+			_last_facing = "east" if _movement_input.x > 0.0 else "west"
+		else:
+			_last_facing = "south" if _movement_input.y > 0.0 else "north"
+
+	var terrain := "land"
+	if is_wading:
+		terrain = "mid" if wading_depth >= 0.55 else "shallow"
+
+	var anim := _movement_anim_name(terrain, _last_facing)
+	_sprite.position = Vector2(0.0, -127.5)
+
+	if force or _sprite.animation != anim:
+		_sprite.play(anim)
+
+	if is_moving:
+		if not _sprite.is_playing():
+			_sprite.play(anim)
+	else:
+		_sprite.stop()
+		_sprite.frame = 0
+
+
+func _movement_anim_name(terrain: String, direction: String) -> StringName:
+	return StringName("%s_%s" % [terrain, direction])
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +212,7 @@ func _atlas_frame(texture: Texture2D, frame_index: int) -> AtlasTexture:
 
 func _handle_movement(delta: float) -> bool:
 	if casting_active:
+		_movement_input = Vector2.ZERO
 		return false
 
 	var dx := 0.0
@@ -128,6 +226,8 @@ func _handle_movement(delta: float) -> bool:
 		dy = 1.0
 	elif Input.is_action_pressed("move_up"):
 		dy = -1.0
+
+	_movement_input = Vector2(dx, dy)
 
 	# Horizontal — current slows wading; bank walking is always full speed
 	if dx != 0.0:
