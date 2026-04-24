@@ -108,6 +108,7 @@ func _ready() -> void:
 	casting.drift_ended.connect(func(): rod_arc_hud.watching_dry_fly = false)
 	casting.mend_upstream.connect(drift.on_mend.bind(-1))
 	casting.mend_downstream.connect(drift.on_mend.bind(1))
+	casting.cast_started.connect(angler.play_cast_overhead)
 	casting.cast_result.connect(_on_cast_result)
 	casting.cast_cancelled.connect(_on_cast_cancelled)
 	casting.drift_started.connect(_on_drift_started_angler)
@@ -540,12 +541,14 @@ func _clear_cast_target() -> void:
 func _on_cast_cancelled() -> void:
 	_dragging_target = false
 	_clear_cast_target()
+	angler.reset_visual_state()
 	rod_arc_hud.watching_dry_fly = false
 
 
 func _on_drift_started_angler() -> void:
 	# Fly is on the water — angler can move again while drifting
 	angler.casting_active = false
+	angler.reset_visual_state()
 	rod_arc_hud.watching_dry_fly = fly_selector.is_dry_fly()
 
 

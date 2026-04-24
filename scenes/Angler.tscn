@@ -6,5 +6,8 @@
 [node name="Angler" type="Node2D"]
 script = ExtResource("1_angler")
 
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+position = Vector2(0, -48)
+
 [node name="ShadowCone" type="Node2D" parent="."]
 script = ExtResource("2_shadow")

@@ -1,6 +1,8 @@
 class_name Angler
 extends Node2D
 
+const _SpriteCatalog = preload("res://scripts/assets/sprite_catalog.gd")
+
 # Player-controlled angler. Handles bank/wading movement, vibration radius,
 # and standing-still detection. Shadow cone visibility driven by DifficultyConfig.
 
@@ -16,6 +18,9 @@ const WADE_ENTRY_Y    := RiverConstants.BANK_H_TILES * RiverConstants.TILE_SIZE 
 const MAX_WADE_DEPTH  := 10  # tiles below surface — shallow fords (≤10 tiles) are crossable
 
 const STILL_THRESHOLD := 3.0  # seconds motionless before signal
+const ANIM_IDLE := &"idle"
+const ANIM_CAST_OVERHEAD := &"cast_overhead"
+const CAST_FPS := 12.0
 
 signal standing_still
 
@@ -31,10 +36,13 @@ var _still_timer: float = 0.0
 var _was_still: bool = false
 var is_moving: bool = false   # public — read by FishAI for SpookCalculator
 
+@onready var _sprite: AnimatedSprite2D = $AnimatedSprite2D
+
 
 func _ready() -> void:
 	position = Vector2(240.0, BANK_Y)
 	z_index = 5   # render above all bank/river overlays (max renderer z_index = 2)
+	_setup_cast_sprite()
 	_refresh_shadow_visibility()
 
 
@@ -44,7 +52,61 @@ func _process(delta: float) -> void:
 	_snap_to_bank_surface()
 	_sync_vibration()
 	_tick_still_timer(delta)
-	queue_redraw()
+	if _sprite == null or _sprite.sprite_frames == null:
+		queue_redraw()
+
+
+func play_cast_overhead() -> void:
+	if _sprite == null or _sprite.sprite_frames == null:
+		return
+	_sprite.play(ANIM_CAST_OVERHEAD)
+
+
+func reset_visual_state() -> void:
+	if _sprite == null or _sprite.sprite_frames == null:
+		queue_redraw()
+		return
+	_sprite.play(ANIM_IDLE)
+
+
+func _setup_cast_sprite() -> void:
+	if _sprite == null:
+		return
+
+	var texture := load(_SpriteCatalog.ANGLER_CAST_OVERHEAD) as Texture2D
+	if texture == null:
+		push_warning("Angler cast sprite texture could not be loaded.")
+		_sprite.visible = false
+		return
+
+	var frames := SpriteFrames.new()
+	frames.remove_animation(&"default")
+	frames.add_animation(ANIM_IDLE)
+	frames.set_animation_loop(ANIM_IDLE, true)
+	frames.set_animation_speed(ANIM_IDLE, 1.0)
+	frames.add_frame(ANIM_IDLE, _atlas_frame(texture, 0))
+
+	frames.add_animation(ANIM_CAST_OVERHEAD)
+	frames.set_animation_loop(ANIM_CAST_OVERHEAD, false)
+	frames.set_animation_speed(ANIM_CAST_OVERHEAD, CAST_FPS)
+	for i in _SpriteCatalog.ANGLER_CAST_FRAMES:
+		frames.add_frame(ANIM_CAST_OVERHEAD, _atlas_frame(texture, i))
+
+	_sprite.sprite_frames = frames
+	_sprite.centered = true
+	_sprite.play(ANIM_IDLE)
+
+
+func _atlas_frame(texture: Texture2D, frame_index: int) -> AtlasTexture:
+	var frame := AtlasTexture.new()
+	frame.atlas = texture
+	frame.region = Rect2(
+		float(frame_index * _SpriteCatalog.ANGLER_CAST_FRAME_SIZE.x),
+		0.0,
+		float(_SpriteCatalog.ANGLER_CAST_FRAME_SIZE.x),
+		float(_SpriteCatalog.ANGLER_CAST_FRAME_SIZE.y)
+	)
+	return frame
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +390,9 @@ func _refresh_shadow_visibility() -> void:
 # ---------------------------------------------------------------------------
 
 func _draw() -> void:
+	if _sprite != null and _sprite.sprite_frames != null:
+		return
+
 	var body_color := Color(0.85, 0.55, 0.25)  # tan/khaki angler
 	var leg_color  := Color(0.45, 0.32, 0.18)
 	var head_color := Color(0.92, 0.78, 0.60)

@@ -1,0 +1,116 @@
+[
+  {
+    "name": "boulders",
+    "path": "spritesheets/boulders_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1365
+    ]
+  },
+  {
+    "name": "aquatic_insects_flies_topdown",
+    "path": "spritesheets/aquatic_insects_flies_topdown_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1365
+    ]
+  },
+  {
+    "name": "river_environment_features",
+    "path": "spritesheets/river_environment_features_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1817
+    ]
+  },
+  {
+    "name": "mountain_whitefish",
+    "path": "spritesheets/mountain_whitefish_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1773
+    ]
+  },
+  {
+    "name": "brown_trout",
+    "path": "spritesheets/brown_trout_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1764
+    ]
+  },
+  {
+    "name": "water_depths_transitions",
+    "path": "spritesheets/water_depths_transitions_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1638
+    ]
+  },
+  {
+    "name": "trees",
+    "path": "spritesheets/trees_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1365
+    ]
+  },
+  {
+    "name": "rainbow_trout",
+    "path": "spritesheets/rainbow_trout_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      1349,
+      1166
+    ]
+  },
+  {
+    "name": "aquatic_insects_lifecycle",
+    "path": "spritesheets/aquatic_insects_lifecycle_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1365
+    ]
+  },
+  {
+    "name": "monster_trout",
+    "path": "spritesheets/monster_trout_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      2048,
+      1638
+    ]
+  },
+  {
+    "name": "angler_casting_reference",
+    "path": "spritesheets/angler_casting_reference_transparent_sheet.png",
+    "kind": "transparent full sheet",
+    "size": [
+      1774,
+      887
+    ]
+  },
+  {
+    "name": "angler_cast_overhead",
+    "path": "spritesheets/angler_cast_overhead_48x96_strip.png",
+    "kind": "uniform strip",
+    "frame_size": [
+      48,
+      96
+    ],
+    "frames": 8
+  },
+  {
+    "name": "angler_moving",
+    "path": "spritesheets/angler_moving_original.png",
+    "kind": "provided production-ready original"
+  }
+]
