@@ -20,7 +20,7 @@ The sprite pack is located under `assets/sprites/` and includes one uniform cast
 | `[x]` | 2 | Replace angler placeholder drawing with `AnimatedSprite2D`; implement `cast_overhead`; wire casting signals to animation state. | `medium` |
 | `[x]` | 3 | Implement angler movement/wading sprite regions from `angler_moving_*`; choose frame regions manually and support directional/wading animations. | `high` |
 | `[x]` | 4 | Replace or augment fish procedural rendering with species sprite atlas regions; preserve opacity/depth/state telegraph behavior. | `high` |
-| `[ ]` | 5 | Add dry-fly, insect, and rise/splash sprites where they fit existing drift/hookset flow. | `medium` |
+| `[x]` | 5 | Add dry-fly, insect, and rise/splash sprites where they fit existing drift/hookset flow. | `medium` |
 | `[ ]` | 6 | Add props from trees/boulders/river features as decorative `Sprite2D` overlays while keeping the procedural river renderer. | `high` |
 | `[ ]` | 7 | Optional larger refactor: convert terrain/water sheets into TileSet/TileMap layers. This conflicts with the current continuous depth-field renderer, so it should be its own design session. | `xhigh` |
 
@@ -71,10 +71,17 @@ Session 4 notes:
 
 ### Session 5: Insects, Flies, and Rise Effects
 
-- `[ ]` Select regions for visible fly, insect particles, and rise/splash effects.
-- `[ ]` Replace or augment procedural insect dots.
-- `[ ]` Replace or augment dry-fly float and rise indicator visuals.
-- `[ ]` Verify hookset timing remains clear.
+- `[x]` Select regions for visible fly, insect particles, and rise/splash effects.
+- `[x]` Replace or augment procedural insect dots.
+- `[x]` Replace or augment dry-fly float and rise indicator visuals.
+- `[x]` Verify hookset timing remains clear.
+
+Session 5 notes:
+
+- Uses `aquatic_insects_lifecycle_transparent_sheet.png` for drifting nymph-style insect particles.
+- Uses `aquatic_insects_flies_topdown_transparent_sheet.png` for skittering adult particles and the visible dry fly.
+- Uses a splash/rise region from `rainbow_trout_transparent_sheet.png` layered under the existing dry-fly rise ring.
+- Keeps the hookset controller state machine and timing unchanged; this is visual-only integration.
 
 ### Session 6: Decorative Props
 
