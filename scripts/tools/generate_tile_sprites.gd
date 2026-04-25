@@ -2,12 +2,12 @@
 extends EditorScript
 
 ## Run from the Godot editor: open the script, then File → Run (Ctrl+Shift+X).
-## Saves 32×32 pixel-art sprites to res://assets/tiles/.
+## Legacy comparison tool: saves 32×32 pixel-art sprites under res://assets/terrain/legacy_tiles/.
 ## Rock and boulder tiles are NOT generated here — the renderer draws those as
 ## organic cluster shapes at runtime so adjacent rocks merge into one formation.
 
 const SZ  := 32
-const OUT := "res://assets/tiles/"
+const OUT := "res://assets/terrain/legacy_tiles/"
 
 
 func _run() -> void:

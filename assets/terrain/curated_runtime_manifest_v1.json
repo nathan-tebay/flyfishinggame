@@ -1,0 +1,84 @@
+{
+	"style_target": "snes_16bit_topdown_fishing",
+	"reference_sheet": "res://assets/terrain/reference/snes_river_tiles_target_v1.png",
+	"tile_size": 32,
+	"notes": [
+		"Use a limited palette and restrained specular highlights.",
+		"Prefer reusable gameplay-readable tiles over showcase-only variations.",
+		"Do not ship full-sheet crop dumps as runtime tile pools."
+	],
+	"categories": {
+		"water_shallow": {
+			"required": true,
+			"target_common": 6,
+			"target_rare": 2,
+			"max_runtime": 8
+		},
+		"water_mid": {
+			"required": true,
+			"target_common": 6,
+			"target_rare": 2,
+			"max_runtime": 8
+		},
+		"water_deep": {
+			"required": true,
+			"target_common": 6,
+			"target_rare": 2,
+			"max_runtime": 8
+		},
+		"transition_shallow_mid": {
+			"required": true,
+			"target_common": 4,
+			"target_rare": 2,
+			"max_runtime": 6
+		},
+		"transition_mid_deep": {
+			"required": true,
+			"target_common": 4,
+			"target_rare": 2,
+			"max_runtime": 6
+		},
+		"transition_shallow_deep": {
+			"required": false,
+			"target_common": 2,
+			"target_rare": 1,
+			"max_runtime": 3
+		},
+		"shoreline_edge": {
+			"required": true,
+			"target_common": 4,
+			"target_rare": 2,
+			"max_runtime": 6
+		},
+		"shoreline_outer_corner": {
+			"required": true,
+			"target_common": 4,
+			"target_rare": 2,
+			"max_runtime": 6
+		},
+		"shoreline_inner_corner": {
+			"required": true,
+			"target_common": 2,
+			"target_rare": 2,
+			"max_runtime": 4
+		},
+		"gravel_bar": {
+			"required": true,
+			"target_common": 4,
+			"target_rare": 2,
+			"max_runtime": 6
+		},
+		"land_fill_primary": {
+			"required": true,
+			"target_common": 6,
+			"target_rare": 2,
+			"max_runtime": 8
+		},
+		"land_fill_secondary": {
+			"required": true,
+			"target_common": 4,
+			"target_rare": 2,
+			"max_runtime": 6
+		}
+	}
+}

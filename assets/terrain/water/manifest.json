@@ -1,0 +1,60 @@
+{
+	"categories": {
+		"deep": {
+			"blocks": [
+				"[P: (562, 139), S: (228, 166)]",
+				"[P: (561, 327), S: (229, 164)]",
+				"[P: (561, 511), S: (229, 166)]"
+			],
+			"count": 105,
+			"kind": "depth"
+		},
+		"mid": {
+			"blocks": [
+				"[P: (305, 140), S: (230, 166)]",
+				"[P: (305, 327), S: (230, 165)]",
+				"[P: (304, 512), S: (231, 166)]"
+			],
+			"count": 105,
+			"kind": "depth"
+		},
+		"mid_to_deep": {
+			"blocks": [
+				"[P: (1251, 137), S: (373, 167)]",
+				"[P: (1250, 327), S: (374, 165)]",
+				"[P: (1250, 512), S: (374, 166)]"
+			],
+			"count": 165,
+			"kind": "transition"
+		},
+		"shallow": {
+			"blocks": [
+				"[P: (48, 140), S: (231, 166)]",
+				"[P: (48, 327), S: (231, 165)]",
+				"[P: (48, 512), S: (231, 166)]"
+			],
+			"count": 105,
+			"kind": "depth"
+		},
+		"shallow_to_deep": {
+			"blocks": [
+				"[P: (1646, 137), S: (371, 167)]",
+				"[P: (1646, 327), S: (371, 165)]",
+				"[P: (1646, 512), S: (371, 166)]"
+			],
+			"count": 165,
+			"kind": "transition"
+		},
+		"shallow_to_mid": {
+			"blocks": [
+				"[P: (859, 137), S: (370, 167)]",
+				"[P: (859, 327), S: (370, 165)]",
+				"[P: (859, 512), S: (370, 166)]"
+			],
+			"count": 165,
+			"kind": "transition"
+		}
+	},
+	"source": "res://assets/sprites/spritesheets/water_depths_transitions_transparent_sheet.png",
+	"tile_size": 32
+}

@@ -22,6 +22,7 @@ const ANIM_IDLE := &"idle"
 const ANIM_CAST_OVERHEAD := &"cast_overhead"
 const CAST_FPS := 12.0
 const MOVE_FPS := 6.0
+const ANGLER_SCENE_SCALE := 0.67
 const MOVING_FRAME_SIZE := Vector2i(150, 255)
 const MOVING_COL_X := [32, 188, 340, 496, 650, 804, 976, 1140, 1316]
 const MOVING_ROW_Y := [0, 278, 548, 824, 1090, 1344, 1588, 1793]
@@ -79,7 +80,7 @@ func play_cast_overhead() -> void:
 	if _sprite == null or _sprite.sprite_frames == null:
 		return
 	_visual_locked_by_cast = true
-	_sprite.position = Vector2(0.0, -48.0)
+	_sprite.position = Vector2(0.0, _sprite_anchor_y(_SpriteCatalog.ANGLER_CAST_FRAME_SIZE.y))
 	_sprite.play(ANIM_CAST_OVERHEAD)
 
 
@@ -123,6 +124,7 @@ func _setup_cast_sprite() -> void:
 
 	_sprite.sprite_frames = frames
 	_sprite.centered = true
+	_sprite.scale = Vector2.ONE * ANGLER_SCENE_SCALE
 	_update_movement_animation(true)
 
 
@@ -189,7 +191,7 @@ func _update_movement_animation(force: bool = false) -> void:
 		terrain = "mid" if wading_depth >= 0.55 else "shallow"
 
 	var anim := _movement_anim_name(terrain, _last_facing)
-	_sprite.position = Vector2(0.0, -127.5)
+	_sprite.position = Vector2(0.0, _sprite_anchor_y(MOVING_FRAME_SIZE.y))
 
 	if force or _sprite.animation != anim:
 		_sprite.play(anim)
@@ -204,6 +206,10 @@ func _update_movement_animation(force: bool = false) -> void:
 
 func _movement_anim_name(terrain: String, direction: String) -> StringName:
 	return StringName("%s_%s" % [terrain, direction])
+
+
+func _sprite_anchor_y(frame_height: int) -> float:
+	return -float(frame_height) * ANGLER_SCENE_SCALE * 0.5
 
 
 # ---------------------------------------------------------------------------

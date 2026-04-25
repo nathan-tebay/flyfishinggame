@@ -5,8 +5,7 @@ This pack turns the supplied reference images into Godot-ready PNG sheets. The r
 ## Contents
 
 - `spritesheets/angler_cast_overhead_48x96_strip.png` — production uniform strip, 8 frames, 48x96 each.
-- `spritesheets/angler_moving_original.png` — your supplied production-ready moving/wading sheet.
-- `spritesheets/angler_moving_transparent.png` — same moving sheet with checkerboard removed.
+- `spritesheets/angler_moving_transparent.png` — checked-in moving/wading sheet with the checkerboard removed.
 - `spritesheets/*_transparent_sheet.png` — transparent versions of the supplied reference sheets for trees, boulders, fish, insects, water, terrain, and river features.
 - `metadata/manifest.json` — list of every generated sheet.
 - `metadata/angler_cast_overhead_48x96.json` — frame metadata for the casting strip.
@@ -56,7 +55,7 @@ Suggested FPS: **10–14 FPS**, one-shot or brief non-looping animation.
 
 ## Angler moving setup
 
-Use `spritesheets/angler_moving_original.png` if it is already validated in your project. Use `spritesheets/angler_moving_transparent.png` if you want the checkerboard removed.
+Use `spritesheets/angler_moving_transparent.png` for movement/wading animation setup.
 
 Suggested animation groups:
 

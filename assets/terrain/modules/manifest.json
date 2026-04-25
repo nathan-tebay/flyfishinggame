@@ -1,0 +1,776 @@
+{
+	"categories": {
+		"gravel_bar": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/gravel_bar",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_001.png",
+					"source_cell": [
+						8,
+						4
+					],
+					"source_rect": [
+						1047,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_002.png",
+					"source_cell": [
+						9,
+						4
+					],
+					"source_rect": [
+						1163,
+						634,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_003.png",
+					"source_cell": [
+						10,
+						4
+					],
+					"source_rect": [
+						1278,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_004.png",
+					"source_cell": [
+						11,
+						4
+					],
+					"source_rect": [
+						1394,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_005.png",
+					"source_cell": [
+						8,
+						5
+					],
+					"source_rect": [
+						1047,
+						750,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_006.png",
+					"source_cell": [
+						9,
+						5
+					],
+					"source_rect": [
+						1163,
+						750,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_007.png",
+					"source_cell": [
+						10,
+						5
+					],
+					"source_rect": [
+						1278,
+						750,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/gravel_bar/gravel_bar_008.png",
+					"source_cell": [
+						11,
+						5
+					],
+					"source_rect": [
+						1394,
+						750,
+						104,
+						104
+					]
+				}
+			]
+		},
+		"shoreline_edge": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/shoreline/edge",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_001.png",
+					"source_cell": [
+						8,
+						2
+					],
+					"source_rect": [
+						1047,
+						346,
+						104,
+						103
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_002.png",
+					"source_cell": [
+						9,
+						2
+					],
+					"source_rect": [
+						1163,
+						346,
+						103,
+						103
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_003.png",
+					"source_cell": [
+						10,
+						2
+					],
+					"source_rect": [
+						1278,
+						346,
+						104,
+						103
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_004.png",
+					"source_cell": [
+						11,
+						2
+					],
+					"source_rect": [
+						1394,
+						346,
+						104,
+						103
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_005.png",
+					"source_cell": [
+						8,
+						3
+					],
+					"source_rect": [
+						1047,
+						461,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_006.png",
+					"source_cell": [
+						9,
+						3
+					],
+					"source_rect": [
+						1163,
+						461,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_007.png",
+					"source_cell": [
+						10,
+						3
+					],
+					"source_rect": [
+						1278,
+						461,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/edge/shoreline_edge_008.png",
+					"source_cell": [
+						11,
+						3
+					],
+					"source_rect": [
+						1394,
+						461,
+						104,
+						104
+					]
+				}
+			]
+		},
+		"shoreline_inner_corner": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/shoreline/inner_corner",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_001.png",
+					"source_cell": [
+						4,
+						4
+					],
+					"source_rect": [
+						539,
+						634,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_002.png",
+					"source_cell": [
+						5,
+						4
+					],
+					"source_rect": [
+						656,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_003.png",
+					"source_cell": [
+						6,
+						4
+					],
+					"source_rect": [
+						772,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_004.png",
+					"source_cell": [
+						7,
+						4
+					],
+					"source_rect": [
+						888,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_005.png",
+					"source_cell": [
+						4,
+						5
+					],
+					"source_rect": [
+						539,
+						750,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_006.png",
+					"source_cell": [
+						5,
+						5
+					],
+					"source_rect": [
+						656,
+						750,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_007.png",
+					"source_cell": [
+						6,
+						5
+					],
+					"source_rect": [
+						772,
+						750,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/inner_corner/shoreline_inner_corner_008.png",
+					"source_cell": [
+						7,
+						5
+					],
+					"source_rect": [
+						888,
+						750,
+						104,
+						104
+					]
+				}
+			]
+		},
+		"shoreline_outer_corner": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/shoreline/outer_corner",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_001.png",
+					"source_cell": [
+						0,
+						4
+					],
+					"source_rect": [
+						36,
+						634,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_002.png",
+					"source_cell": [
+						1,
+						4
+					],
+					"source_rect": [
+						153,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_003.png",
+					"source_cell": [
+						2,
+						4
+					],
+					"source_rect": [
+						269,
+						634,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_004.png",
+					"source_cell": [
+						3,
+						4
+					],
+					"source_rect": [
+						384,
+						634,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_005.png",
+					"source_cell": [
+						0,
+						5
+					],
+					"source_rect": [
+						36,
+						750,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_006.png",
+					"source_cell": [
+						1,
+						5
+					],
+					"source_rect": [
+						153,
+						750,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_007.png",
+					"source_cell": [
+						2,
+						5
+					],
+					"source_rect": [
+						269,
+						750,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/shoreline/outer_corner/shoreline_outer_corner_008.png",
+					"source_cell": [
+						3,
+						5
+					],
+					"source_rect": [
+						384,
+						750,
+						104,
+						104
+					]
+				}
+			]
+		},
+		"water_deep": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/water/deep",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_001.png",
+					"source_cell": [
+						8,
+						0
+					],
+					"source_rect": [
+						1047,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_002.png",
+					"source_cell": [
+						9,
+						0
+					],
+					"source_rect": [
+						1163,
+						56,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_003.png",
+					"source_cell": [
+						10,
+						0
+					],
+					"source_rect": [
+						1278,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_004.png",
+					"source_cell": [
+						11,
+						0
+					],
+					"source_rect": [
+						1394,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_005.png",
+					"source_cell": [
+						8,
+						1
+					],
+					"source_rect": [
+						1047,
+						172,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_006.png",
+					"source_cell": [
+						9,
+						1
+					],
+					"source_rect": [
+						1163,
+						172,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_007.png",
+					"source_cell": [
+						10,
+						1
+					],
+					"source_rect": [
+						1278,
+						172,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/deep/deep_008.png",
+					"source_cell": [
+						11,
+						1
+					],
+					"source_rect": [
+						1394,
+						172,
+						104,
+						104
+					]
+				}
+			]
+		},
+		"water_mid": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/water/mid",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_001.png",
+					"source_cell": [
+						4,
+						0
+					],
+					"source_rect": [
+						539,
+						56,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_002.png",
+					"source_cell": [
+						5,
+						0
+					],
+					"source_rect": [
+						656,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_003.png",
+					"source_cell": [
+						6,
+						0
+					],
+					"source_rect": [
+						772,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_004.png",
+					"source_cell": [
+						7,
+						0
+					],
+					"source_rect": [
+						888,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_005.png",
+					"source_cell": [
+						4,
+						1
+					],
+					"source_rect": [
+						539,
+						172,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_006.png",
+					"source_cell": [
+						5,
+						1
+					],
+					"source_rect": [
+						656,
+						172,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_007.png",
+					"source_cell": [
+						6,
+						1
+					],
+					"source_rect": [
+						772,
+						172,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/mid/mid_008.png",
+					"source_cell": [
+						7,
+						1
+					],
+					"source_rect": [
+						888,
+						172,
+						104,
+						104
+					]
+				}
+			]
+		},
+		"water_shallow": {
+			"count": 8,
+			"dir": "res://assets/terrain/modules/water/shallow",
+			"tiles": [
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_001.png",
+					"source_cell": [
+						0,
+						0
+					],
+					"source_rect": [
+						36,
+						56,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_002.png",
+					"source_cell": [
+						1,
+						0
+					],
+					"source_rect": [
+						153,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_003.png",
+					"source_cell": [
+						2,
+						0
+					],
+					"source_rect": [
+						269,
+						56,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_004.png",
+					"source_cell": [
+						3,
+						0
+					],
+					"source_rect": [
+						384,
+						56,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_005.png",
+					"source_cell": [
+						0,
+						1
+					],
+					"source_rect": [
+						36,
+						172,
+						105,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_006.png",
+					"source_cell": [
+						1,
+						1
+					],
+					"source_rect": [
+						153,
+						172,
+						104,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_007.png",
+					"source_cell": [
+						2,
+						1
+					],
+					"source_rect": [
+						269,
+						172,
+						103,
+						104
+					]
+				},
+				{
+					"file": "res://assets/terrain/modules/water/shallow/shallow_008.png",
+					"source_cell": [
+						3,
+						1
+					],
+					"source_rect": [
+						384,
+						172,
+						104,
+						104
+					]
+				}
+			]
+		}
+	},
+	"module_size": 64,
+	"source": "res://assets/terrain/reference/snes_river_tiles_target_v2.png"
+}

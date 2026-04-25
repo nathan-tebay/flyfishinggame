@@ -4,7 +4,7 @@ Branch: `sprites`
 
 ## Context
 
-The sprite pack is located under `assets/sprites/` and includes one uniform casting strip plus several large cleaned atlas sheets. The current game mostly renders visuals procedurally, so the work should be integrated incrementally instead of replacing all rendering at once.
+The sprite pack is located under `assets/sprites/` and includes one uniform casting strip plus several large cleaned atlas sheets. The regenerated terrain TileSet pack now lives under `assets/terrain/river_atlas/`. The current game still uses a custom renderer for production river visuals, so terrain atlas work should stay explicit about whether it is prototype/editor support or live runtime integration.
 
 ## Progress Legend
 
@@ -22,7 +22,11 @@ The sprite pack is located under `assets/sprites/` and includes one uniform cast
 | `[x]` | 4 | Replace or augment fish procedural rendering with species sprite atlas regions; preserve opacity/depth/state telegraph behavior. | `high` |
 | `[x]` | 5 | Add dry-fly, insect, and rise/splash sprites where they fit existing drift/hookset flow. | `medium` |
 | `[x]` | 6 | Add props from trees/boulders/river features as decorative `Sprite2D` overlays while keeping the procedural river renderer. | `high` |
-| `[ ]` | 7 | Optional larger refactor: convert terrain/water sheets into TileSet/TileMap layers. This conflicts with the current continuous depth-field renderer, so it should be its own design session. | `xhigh` |
+| `[x]` | 7 | Optional larger refactor: convert terrain/water sheets into TileSet/TileMap layers. This conflicts with the current continuous depth-field renderer, so it should be its own design session. | `xhigh` |
+| `[x]` | 8 | Create a strict river sprite atlas catalog and remove old `assets/tiles` dependencies from river rendering/prototype definitions. | `high` |
+| `[x]` | 9 | Replace the production base river/bank chunk bake with a sprite-only atlas compositor, including water/bank/depth variation rules. | `xhigh` |
+| `[x]` | 10 | Replace remaining generated in-river structure effects with sprite-only overlays/animated atlas effects. | `high` |
+| `[x]` | 11 | Tune scale, draw order, transitions, and performance for the sprite-only river renderer. | `high` |
 
 ## Step Tracking
 
@@ -100,11 +104,66 @@ Session 6 notes:
 
 ### Session 7: Optional TileSet Refactor
 
-- `[ ]` Decide whether atlas-driven terrain should replace the procedural depth renderer.
-- `[ ]` Prototype TileSet/TileMap layers from water and terrain sheets.
-- `[ ]` Compare visual quality/performance against the current renderer.
-- `[ ]` Keep or discard as a separate design decision.
+- `[x]` Decide whether atlas-driven terrain should replace the procedural depth renderer.
+- `[x]` Prototype TileSet/TileMap layers from water and terrain sheets.
+- `[x]` Compare visual quality/performance against the current renderer.
+- `[x]` Keep or discard as a separate design decision.
+
+Session 7 notes:
+
+- Added `RiverAtlasTilePrototype`, a standalone `TileMap` prototype that builds a runtime `TileSet` from selected atlas/source tile regions and renders existing `RiverData`.
+- The prototype rendered one full generated section: 1,440 columns by 30 rows, 43,200 cells.
+- Decision: keep the current continuous depth-field `RiverRenderer` as the production renderer. It gives smoother organic transitions, preserves rock wake effects, and avoids visible grid seams.
+- Keep the atlas TileMap prototype as a comparison/development tool only. Do not wire it into `RiverWorld` unless a future design pass explicitly chooses a tile-based river style.
+
+### Post-Session Visual Corrections
+
+- `[x]` Reduce the angler sprite scale by roughly 50% relative to the scene read, using a 0.67 render scale and adjusted foot anchoring.
+- `[x]` Replace production river chunk baking with atlas/source tile blits when sprite assets are available, so water/river tiles visibly use sprite art instead of the continuous procedural colour field.
+- `[x]` Replace in-river procedural rock/boulder polygons with boulder-sheet sprites while preserving wake seam effects.
+- `[x]` Reduce log and weed-bed enlargement and enable linear texture filtering to avoid visibly pixelated over-scaling.
+- `[x]` Remove old `assets/tiles` references from river base definitions; bank, gravel, and undercut base art now resolve through sprite-sheet atlas regions.
+
+### Session 8: Strict River Sprite Atlas Source
+
+- `[x]` Add a centralized `RiverSpriteAtlas` catalog for river base tiles and prop regions.
+- `[x]` Move river base definitions to `assets/sprites/spritesheets/*` atlas regions only.
+- `[x]` Wire `RiverRenderer` base chunk selection through `RiverSpriteAtlas`.
+- `[x]` Remove the conditional procedural colour-field fallback from active chunk rendering.
+- `[x]` Wire the TileMap prototype through the same sprite atlas catalog so it cannot drift back to old tile files.
+- `[x]` Verify no river renderer/prototype code references `assets/tiles`.
+- `[x]` Session 9 follow-up: improve atlas compositing quality with sprite variation and transition selection instead of one repeated 32x32 sample per tile type.
+
+### Session 9: Sprite-Only Base Compositor
+
+- `[x]` Add large atlas source blocks for bank grass, bank soil, gravel, shallow/mid/deep water, high-current water, and depth transitions.
+- `[x]` Add deterministic 32x32 subregion sampling from larger sprite blocks so adjacent sections avoid one repeated tile crop.
+- `[x]` Select bank edge art separately from bank interior grass.
+- `[x]` Select high-current/ripple water art from the sprite sheet when current is strong.
+- `[x]` Select shallow-to-mid, mid-to-deep, and shallow-to-deep transition source blocks from neighboring depth classes.
+- `[x]` Route weed, log, rock, and boulder base cells through in-water feature blocks by depth class.
+- `[x]` Keep the compositor strict: all production base art still resolves through `assets/sprites` atlas regions.
+- `[x]` Session 10 follow-up: replace remaining generated wake/seam and fallback structure drawing paths with sprite-only overlays/effects.
+
+### Session 10: Sprite-Only Structure Effects
+
+- `[x]` Remove the inactive procedural depth-field renderer from `RiverRenderer`.
+- `[x]` Remove generated rock/boulder polygon fallback drawing.
+- `[x]` Remove generated wake seam `Line2D` effects behind rocks/boulders.
+- `[x]` Remove generated driftwood/log fallback drawing.
+- `[x]` Remove generated tree, bush, and bank-boulder fallback drawing.
+- `[x]` Keep debug hold overlays separate; debug still uses temporary polygons only when the debug overlay is enabled.
+- `[x]` Session 11 follow-up: tune sprite scale, density, z-ordering, and performance now that the production path is sprite-only.
+
+### Session 11: Sprite Scale, Density, and Ordering
+
+- `[x]` Reduce bank prop density so large sections do not spawn excessive overlay nodes.
+- `[x]` Make bank tree/grass/boulder placement deterministic by tile hash instead of dense sequential random placement.
+- `[x]` Reduce tree, grass, boulder, weed-bed, log, and in-river rock target scales to limit pixelation and overdraw.
+- `[x]` Enable Y-sort on the river renderer and make prop z-indexes absolute for clearer layering.
+- `[x]` Keep water/base chunks as 24 baked sprites per section while limiting dynamic overlay count.
+- `[ ]` Follow-up outside the sprite implementation plan: review the game visually in the editor and tune individual atlas crop choices if any selected source block reads poorly in motion.
 
 ## Recommended Path
 
-Complete sessions 1-6 incrementally and defer session 7 unless the goal is to replace the procedural river look with atlas-driven tile layers.
+Sessions 1-11 are complete. The current production direction is still the custom sprite-atlas river renderer: `RiverData` remains the gameplay map, while river base visuals and structure overlays resolve through `assets/sprites` source sheets. The regenerated terrain TileSet pack under `assets/terrain/river_atlas/` is kept as a normalized comparison/editor asset path until a future runtime integration pass adopts it deliberately.
