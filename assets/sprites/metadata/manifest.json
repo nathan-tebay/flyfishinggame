@@ -110,7 +110,17 @@
   },
   {
     "name": "angler_moving",
-    "path": "spritesheets/angler_moving_original.png",
-    "kind": "provided production-ready original"
+    "path": "spritesheets/angler_moving_transparent.png",
+    "kind": "combined transparent atlas",
+    "size": [
+      768,
+      256
+    ],
+    "frame_size": [
+      64,
+      64
+    ],
+    "max_visible_source_height": 64,
+    "render_height": 64
   }
 ]

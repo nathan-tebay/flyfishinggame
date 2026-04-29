@@ -27,6 +27,8 @@ const _TILE_POOL_DIRS := {
 	"water_shallow": _SpriteCatalog.MODULE_TILE_ROOT + "/water/shallow",
 	"water_mid": _SpriteCatalog.MODULE_TILE_ROOT + "/water/mid",
 	"water_deep": _SpriteCatalog.MODULE_TILE_ROOT + "/water/deep",
+	"transition_shallow_mid": _SpriteCatalog.RUNTIME_TILE_ROOT + "/water/transitions/shallow_to_mid",
+	"transition_mid_deep": _SpriteCatalog.RUNTIME_TILE_ROOT + "/water/transitions/mid_to_deep",
 	"gravel_bar": _SpriteCatalog.MODULE_TILE_ROOT + "/gravel_bar",
 }
 
@@ -46,6 +48,17 @@ const _BANK_MATERIAL_SAND := 0
 const _BANK_MATERIAL_GRAVEL := 1
 const _BANK_MATERIAL_GRASS := 2
 const _MODULE_TILE_SIZE := RiverConstants.TILE_SIZE * 2
+const _CORNER_WATER_TL := 0
+const _CORNER_WATER_TR := 1
+const _CORNER_WATER_BL := 2
+const _CORNER_WATER_BR := 3
+
+const _SHORELINE_CORNER_INDICES_BY_WATER_QUADRANT := {
+	_CORNER_WATER_TL: [6, 7],
+	_CORNER_WATER_TR: [4, 5],
+	_CORNER_WATER_BL: [2, 3],
+	_CORNER_WATER_BR: [0, 1],
+}
 
 const _MANIFEST_CATEGORY_BY_POOL := {
 	"water_shallow": "water_shallow",
@@ -53,6 +66,7 @@ const _MANIFEST_CATEGORY_BY_POOL := {
 	"water_deep": "water_deep",
 	"transition_shallow_mid": "transition_shallow_mid",
 	"transition_mid_deep": "transition_mid_deep",
+	"transition_shallow_deep": "transition_shallow_deep",
 	"shoreline_edge": "shoreline_edge",
 	"shoreline_outer_corner": "shoreline_outer_corner",
 	"shoreline_inner_corner": "shoreline_inner_corner",
@@ -218,8 +232,27 @@ func _load_tile_pool(pool_key: String, dir_path: String) -> Array:
 		if img.load(ProjectSettings.globalize_path(load_path)) == OK:
 			if img.get_format() != Image.FORMAT_RGBA8:
 				img.convert(Image.FORMAT_RGBA8)
+			if pool_key.begins_with("terrain_"):
+				_seal_bright_tile_edges(img)
 			pool.append(img)
 	return pool
+
+
+func _seal_bright_tile_edges(tile: Image) -> void:
+	var w := tile.get_width()
+	var h := tile.get_height()
+	if w < 8 or h < 8:
+		return
+	var edge_width := 2
+	var inset := 3
+	for y in range(h):
+		for x in range(edge_width):
+			tile.set_pixel(x, y, tile.get_pixel(inset, y))
+			tile.set_pixel(w - 1 - x, y, tile.get_pixel(w - 1 - inset, y))
+	for x in range(w):
+		for y in range(edge_width):
+			tile.set_pixel(x, y, tile.get_pixel(x, inset))
+			tile.set_pixel(x, h - 1 - y, tile.get_pixel(x, h - 1 - inset))
 
 
 func _pool_meta_for_category(category: String) -> Dictionary:
@@ -263,6 +296,8 @@ func _curated_file_list(files: PackedStringArray, meta: Dictionary) -> PackedStr
 func _patch_span_for_pool(pool_key: String) -> Vector2i:
 	if pool_key.begins_with("water_"):
 		return Vector2i(12, 8)
+	if pool_key.begins_with("transition_"):
+		return Vector2i(10, 6)
 	if pool_key.begins_with("shoreline_"):
 		return Vector2i(14, 2)
 	if pool_key == "gravel_bar":
@@ -442,9 +477,12 @@ func _render_chunk(data: RiverData, start_tx: int, chunk_w: int) -> Image:
 		for ty in range(data.height):
 			var dst := Vector2i((tx - start_tx) * ts, ty * ts)
 			_blit_base_tile(img, dst, data, tx, ty)
-			_blit_water_depth_blend(img, dst, data, tx, ty)
+			if not _blit_water_transition(img, dst, data, tx, ty):
+				_blit_water_depth_blend(img, dst, data, tx, ty)
 
+	_blend_compatible_tile_seams(img, data, start_tx, chunk_w)
 	_blit_shoreline_modules(img, data, start_tx, chunk_w)
+	_blit_profile_shoreline_overlay(img, data, start_tx, chunk_w)
 
 	return img
 
@@ -477,8 +515,77 @@ func _blit_base_tile(target: Image, dst: Vector2i, data: RiverData, tx: int, ty:
 			_blit_material_module_quadrant(target, dst, "terrain_gravel", tx, ty, 719)
 
 
+func _blend_compatible_tile_seams(target: Image, data: RiverData, start_tx: int, chunk_w: int) -> void:
+	var ts := RiverConstants.TILE_SIZE
+	var end_tx := start_tx + chunk_w
+	for tx in range(start_tx + 1, end_tx):
+		var seam_x := (tx - start_tx) * ts
+		for ty in range(data.height):
+			if not _tiles_can_seam_blend(data, tx - 1, ty, tx, ty):
+				continue
+			_blend_vertical_seam_segment(target, seam_x, ty * ts, ts)
+
+	for tx in range(start_tx, end_tx):
+		var x0 := (tx - start_tx) * ts
+		for ty in range(1, data.height):
+			if not _tiles_can_seam_blend(data, tx, ty - 1, tx, ty):
+				continue
+			_blend_horizontal_seam_segment(target, x0, ty * ts, ts)
+
+
+func _tiles_can_seam_blend(data: RiverData, ax: int, ay: int, bx: int, by: int) -> bool:
+	if ax < 0 or bx < 0 or ax >= data.width or bx >= data.width \
+			or ay < 0 or by < 0 or ay >= data.height or by >= data.height:
+		return false
+	var a_group := _seam_blend_group(data.tile_map[ax][ay] as int)
+	var b_group := _seam_blend_group(data.tile_map[bx][by] as int)
+	return a_group >= 0 and a_group == b_group
+
+
+func _seam_blend_group(tile_type: int) -> int:
+	if _water_depth_class_for_type(tile_type) >= 0:
+		return 1
+	match tile_type:
+		RiverConstants.TILE_BANK, RiverConstants.TILE_UNDERCUT_BANK, RiverConstants.TILE_GRAVEL_BAR:
+			return 2
+	return -1
+
+
+func _blend_vertical_seam_segment(target: Image, seam_x: int, y0: int, height: int) -> void:
+	if seam_x <= 0 or seam_x >= target.get_width():
+		return
+	var blend_width := 3
+	for y in range(y0, mini(y0 + height, target.get_height())):
+		for d in range(blend_width):
+			var lx := seam_x - 1 - d
+			var rx := seam_x + d
+			if lx < 0 or rx >= target.get_width():
+				continue
+			var left := target.get_pixel(lx, y)
+			var right := target.get_pixel(rx, y)
+			var mix := 0.34 - float(d) * 0.08
+			target.set_pixel(lx, y, left.lerp(right, mix))
+			target.set_pixel(rx, y, right.lerp(left, mix))
+
+
+func _blend_horizontal_seam_segment(target: Image, x0: int, seam_y: int, width: int) -> void:
+	if seam_y <= 0 or seam_y >= target.get_height():
+		return
+	var blend_width := 3
+	for x in range(x0, mini(x0 + width, target.get_width())):
+		for d in range(blend_width):
+			var uy := seam_y - 1 - d
+			var dy := seam_y + d
+			if uy < 0 or dy >= target.get_height():
+				continue
+			var up := target.get_pixel(x, uy)
+			var down := target.get_pixel(x, dy)
+			var mix := 0.34 - float(d) * 0.08
+			target.set_pixel(x, uy, up.lerp(down, mix))
+			target.set_pixel(x, dy, down.lerp(up, mix))
+
+
 func _blit_shoreline_modules(target: Image, data: RiverData, start_tx: int, chunk_w: int) -> void:
-	var anchors := {}
 	var end_tx := start_tx + chunk_w
 	for tx in range(start_tx, end_tx):
 		for ty in range(data.height):
@@ -487,38 +594,100 @@ func _blit_shoreline_modules(target: Image, data: RiverData, start_tx: int, chun
 			var shoreline := _bank_tile_def(data, tx, ty)
 			if shoreline.is_empty():
 				continue
-			if shoreline["pool"] == "shoreline_inner_corner":
+			if not _shoreline_has_water_contact(data, tx, ty, shoreline):
 				continue
-			var anchor := Vector2i(tx - posmod(tx, 2), ty - posmod(ty, 2))
-			if anchor.x < start_tx or anchor.x + 1 >= end_tx:
-				continue
-			if anchor.x + 1 >= data.width or anchor.y < 0 or anchor.y + 1 >= data.height:
-				continue
-			var priority := 2 if shoreline["pool"] == "shoreline_outer_corner" else 1
-			var current: Dictionary = anchors.get(anchor, {}) as Dictionary
-			if current.is_empty() or priority > int(current.get("priority", 0)):
-				anchors[anchor] = {
-					"pool": shoreline["pool"],
-					"rotation": shoreline["rotation"],
-					"flip_h": shoreline.get("flip_h", false),
-					"flip_v": shoreline.get("flip_v", false),
-					"priority": priority,
-				}
+			var dst := Vector2i((tx - start_tx) * RiverConstants.TILE_SIZE, ty * RiverConstants.TILE_SIZE)
+			_blit_oriented_module_quadrant(
+					target,
+					dst,
+					shoreline["pool"] as String,
+					tx,
+					ty,
+					401,
+					int(shoreline.get("rotation", _RiverSpriteAtlas.ROTATE_0)),
+					bool(shoreline.get("flip_h", false)),
+					bool(shoreline.get("flip_v", false)),
+					shoreline.get("indices", []),
+					shoreline.get("quadrant", Vector2i.ZERO) as Vector2i,
+					shoreline.get("water_dirs", []))
 
-	for anchor_variant in anchors.keys():
-		var anchor: Vector2i = anchor_variant
-		var def := anchors[anchor] as Dictionary
-		var dst := Vector2i((anchor.x - start_tx) * RiverConstants.TILE_SIZE, anchor.y * RiverConstants.TILE_SIZE)
-		_blit_module_image(
-				target,
-				dst,
-				def["pool"] as String,
-				anchor.x,
-				anchor.y,
-				401,
-				int(def.get("rotation", _RiverSpriteAtlas.ROTATE_0)),
-				bool(def.get("flip_h", false)),
-				bool(def.get("flip_v", false)))
+
+func _shoreline_module_def_for_anchor(data: RiverData, tx: int, ty: int) -> Dictionary:
+	if tx < 0 or tx + 1 >= data.width or ty < 0 or ty + 1 >= data.height:
+		return {}
+	var tl := _depth_class_at(data, tx, ty) >= 0
+	var tr := _depth_class_at(data, tx + 1, ty) >= 0
+	var bl := _depth_class_at(data, tx, ty + 1) >= 0
+	var br := _depth_class_at(data, tx + 1, ty + 1) >= 0
+	var water_count := int(tl) + int(tr) + int(bl) + int(br)
+
+	if water_count == 1:
+		var quadrant := _CORNER_WATER_BR
+		if tl:
+			quadrant = _CORNER_WATER_TL
+		elif tr:
+			quadrant = _CORNER_WATER_TR
+		elif bl:
+			quadrant = _CORNER_WATER_BL
+		return {
+			"pool": "shoreline_outer_corner",
+			"rotation": _RiverSpriteAtlas.ROTATE_0,
+			"flip_h": false,
+			"flip_v": false,
+			"indices": _SHORELINE_CORNER_INDICES_BY_WATER_QUADRANT[quadrant],
+		}
+
+	if water_count == 2:
+		if bl and br:
+			return {
+				"pool": "shoreline_edge",
+				"rotation": _RiverSpriteAtlas.ROTATE_0,
+				"flip_h": false,
+				"flip_v": false,
+			}
+		if tl and tr:
+			return {
+				"pool": "shoreline_edge",
+				"rotation": _RiverSpriteAtlas.ROTATE_0,
+				"flip_h": false,
+				"flip_v": true,
+			}
+		if tl and bl:
+			return {
+				"pool": "shoreline_edge",
+				"rotation": _RiverSpriteAtlas.ROTATE_90,
+				"flip_h": false,
+				"flip_v": false,
+			}
+		if tr and br:
+			return {
+				"pool": "shoreline_edge",
+				"rotation": _RiverSpriteAtlas.ROTATE_270,
+				"flip_h": false,
+				"flip_v": false,
+			}
+
+	return {}
+
+
+func _shoreline_priority(pool_key: String) -> int:
+	match pool_key:
+		"shoreline_outer_corner":
+			return 3
+		"shoreline_inner_corner":
+			return 2
+		"shoreline_edge":
+			return 1
+	return 0
+
+
+func _shoreline_has_water_contact(data: RiverData, tx: int, ty: int, shoreline: Dictionary) -> bool:
+	var dirs: Array = shoreline.get("water_dirs", [])
+	for dir_variant in dirs:
+		var dir := dir_variant as Vector2i
+		if _depth_class_at(data, tx + dir.x, ty + dir.y) < 0:
+			return false
+	return not dirs.is_empty()
 
 
 func _blit_water_depth_blend(target: Image, dst: Vector2i, data: RiverData, tx: int, ty: int) -> void:
@@ -542,36 +711,39 @@ func _blit_water_depth_blend(target: Image, dst: Vector2i, data: RiverData, tx: 
 	target.blit_rect(overlay, Rect2i(Vector2i.ZERO, overlay.get_size()), dst)
 
 
-func _blit_water_transition(target: Image, dst: Vector2i, data: RiverData, tx: int, ty: int) -> void:
+func _blit_water_transition(target: Image, dst: Vector2i, data: RiverData, tx: int, ty: int) -> bool:
 	var transition := _transition_tile_info(data, tx, ty)
 	if transition.is_empty():
-		return
+		return false
 	var pool_key := _TRANSITION_POOL_BY_KIND.get(
 			transition["kind"] as int,
 			"") as String
 	if pool_key.is_empty():
-		return
-	_blit_pool_tile(
-			target,
-			dst,
-			pool_key,
-			tx,
-			ty,
-			911,
-			transition["rotation"] as int)
+		return false
+	var transition_tile := _pool_tile_image(pool_key, tx, ty, 911)
+	if transition_tile == null:
+		return false
+	var rotation := transition["rotation"] as int
+	if rotation != _RiverSpriteAtlas.ROTATE_0:
+		transition_tile = _transformed_image(transition_tile, rotation, false, false)
+	var base_tile := target.get_region(Rect2i(dst, Vector2i.ONE * RiverConstants.TILE_SIZE))
+	var blended := _make_transition_overlay_tile(base_tile, transition_tile, rotation)
+	target.blit_rect(blended, Rect2i(Vector2i.ZERO, blended.get_size()), dst)
+	return true
 
 
 func _blit_pool_tile(target: Image, dst: Vector2i, pool_key: String, tx: int, ty: int,
 		salt: int, rotation: int = _RiverSpriteAtlas.ROTATE_0,
-		flip_h: bool = false, flip_v: bool = false) -> void:
+		flip_h: bool = false, flip_v: bool = false) -> bool:
 	var tile := _pool_tile_image(pool_key, tx, ty, salt)
 	if tile == null:
-		return
+		return false
 	if rotation == _RiverSpriteAtlas.ROTATE_0 and not flip_h and not flip_v:
 		target.blit_rect(tile, Rect2i(Vector2i.ZERO, tile.get_size()), dst)
-		return
+		return true
 	var transformed := _transformed_image(tile, rotation, flip_h, flip_v)
 	target.blit_rect(transformed, Rect2i(Vector2i.ZERO, transformed.get_size()), dst)
+	return true
 
 
 func _blit_module_image(target: Image, dst: Vector2i, pool_key: String, tx: int, ty: int,
@@ -585,6 +757,247 @@ func _blit_module_image(target: Image, dst: Vector2i, pool_key: String, tx: int,
 		return
 	var transformed := _transformed_image(module, rotation, flip_h, flip_v)
 	target.blit_rect(transformed, Rect2i(Vector2i.ZERO, transformed.get_size()), dst)
+
+
+func _blit_oriented_module_quadrant(target: Image, dst: Vector2i, pool_key: String,
+		tx: int, ty: int, salt: int, rotation: int = _RiverSpriteAtlas.ROTATE_0,
+		flip_h: bool = false, flip_v: bool = false, indices: Array = [],
+		quadrant: Vector2i = Vector2i.ZERO, water_dirs: Array = []) -> void:
+	var module := _pool_tile_image_from_indices(pool_key, indices, tx, ty, salt) \
+			if not indices.is_empty() else _pool_tile_image(pool_key, tx, ty, salt)
+	if module == null:
+		return
+	if rotation != _RiverSpriteAtlas.ROTATE_0 or flip_h or flip_v:
+		module = _transformed_image(module, rotation, flip_h, flip_v)
+	var ts := RiverConstants.TILE_SIZE
+	var local := Vector2i(clampi(quadrant.x, 0, 1), clampi(quadrant.y, 0, 1))
+	var region := Rect2i(local.x * ts, local.y * ts, ts, ts)
+	var tile := module.get_region(region)
+	_blit_shoreline_overlay_tile(target, tile, dst, water_dirs)
+
+
+func _blit_shoreline_overlay_tile(target: Image, source: Image, dst: Vector2i, water_dirs: Array) -> void:
+	var size := source.get_size()
+	for y in range(size.y):
+		var target_y := dst.y + y
+		if target_y < 0 or target_y >= target.get_height():
+			continue
+		for x in range(size.x):
+			var target_x := dst.x + x
+			if target_x < 0 or target_x >= target.get_width():
+				continue
+			var alpha := _shoreline_overlay_alpha(x, y, size, water_dirs)
+			if alpha <= 0.0:
+				continue
+			var src := source.get_pixel(x, y)
+			target.set_pixel(
+					target_x,
+					target_y,
+					target.get_pixel(target_x, target_y).lerp(src, alpha * src.a))
+
+
+func _shoreline_overlay_alpha(x: int, y: int, size: Vector2i, water_dirs: Array) -> float:
+	if water_dirs.is_empty():
+		return 1.0
+	var edge_alpha := 0.0
+	for dir_variant in water_dirs:
+		var dir := dir_variant as Vector2i
+		var dist := 0
+		if dir == Vector2i(0, 1):
+			dist = size.y - 1 - y
+		elif dir == Vector2i(0, -1):
+			dist = y
+		elif dir == Vector2i(1, 0):
+			dist = size.x - 1 - x
+		elif dir == Vector2i(-1, 0):
+			dist = x
+		else:
+			continue
+		var a := 1.0 - clampf(float(dist) / 18.0, 0.0, 1.0)
+		edge_alpha = maxf(edge_alpha, a)
+	edge_alpha = edge_alpha * edge_alpha * (3.0 - 2.0 * edge_alpha)
+	return edge_alpha
+
+
+func _blit_profile_shoreline_overlay(target: Image, data: RiverData, start_tx: int, chunk_w: int) -> void:
+	var ts := RiverConstants.TILE_SIZE
+	var img_w := target.get_width()
+	for px in range(img_w):
+		var world_x := start_tx + float(px) / float(ts)
+		var top_y := _smoothed_bank_profile_y(data.top_bank_profile, world_x, data.width) * float(ts)
+		var bottom_y := _smoothed_bank_profile_y(data.bottom_bank_profile, world_x, data.width) * float(ts)
+		var world_tx := clampi(start_tx + px / ts, 0, data.width - 1)
+		var top_hard_y := float(int(data.top_bank_profile[world_tx]) * ts)
+		var bottom_hard_y := float(int(data.bottom_bank_profile[world_tx]) * ts)
+		_blit_profile_mismatch_column(target, data, px, top_y, top_hard_y, true, world_tx)
+		_blit_profile_mismatch_column(target, data, px, bottom_y, bottom_hard_y, false, world_tx)
+		_blit_profile_shore_column(target, data, start_tx, px, top_y, true)
+		_blit_profile_shore_column(target, data, start_tx, px, bottom_y, false)
+
+
+func _smoothed_bank_profile_y(profile: Array, world_x: float, width: int) -> float:
+	if profile.is_empty():
+		return 0.0
+	var x0 := floori(world_x)
+	var accum := 0.0
+	var weight_sum := 0.0
+	for dx in range(-3, 4):
+		var sx := clampi(x0 + dx, 0, width - 1)
+		var dist := absf(world_x - float(sx))
+		var weight := maxf(0.0, 1.0 - dist / 3.5)
+		weight *= weight
+		accum += float(profile[sx]) * weight
+		weight_sum += weight
+	if weight_sum <= 0.0:
+		return float(profile[clampi(x0, 0, profile.size() - 1)])
+	return accum / weight_sum
+
+
+func _blit_profile_mismatch_column(target: Image, data: RiverData, px: int, shore_y: float,
+		hard_y: float, top_bank: bool, world_tx: int) -> void:
+	var delta := hard_y - shore_y
+	if absf(delta) < 1.0:
+		return
+	var y0 := floori(minf(shore_y, hard_y) - 6.0)
+	var y1 := ceili(maxf(shore_y, hard_y) + 6.0)
+	y0 = maxi(0, y0)
+	y1 = mini(target.get_height() - 1, y1)
+	for py in range(y0, y1 + 1):
+		var visual_water := float(py) >= shore_y if top_bank else float(py) <= shore_y
+		var hard_water := float(py) >= hard_y if top_bank else float(py) <= hard_y
+		if visual_water == hard_water:
+			continue
+		var dist_to_gap_edge := minf(absf(float(py) - shore_y), absf(float(py) - hard_y))
+		var edge_fade := clampf(dist_to_gap_edge / 4.0, 0.0, 1.0)
+		edge_fade = 0.35 + 0.65 * edge_fade
+		var color := _profile_filler_sample_color(
+				target,
+				px,
+				py,
+				hard_y,
+				top_bank,
+				visual_water,
+				data.seed + world_tx * 17)
+		target.set_pixel(px, py, target.get_pixel(px, py).lerp(color, 0.86 * edge_fade))
+
+
+func _blit_profile_shore_column(target: Image, data: RiverData, start_tx: int, px: int,
+		shore_y: float, top_bank: bool) -> void:
+	var ts := RiverConstants.TILE_SIZE
+	var world_tx := clampi(start_tx + px / ts, 0, data.width - 1)
+	var y_start := maxi(0, floori(shore_y - 18.0))
+	var y_end := mini(target.get_height() - 1, ceili(shore_y + 30.0))
+	for py in range(y_start, y_end + 1):
+		var dist_to_water := float(py) - shore_y if top_bank else shore_y - float(py)
+		var alpha := _profile_shore_alpha(dist_to_water)
+		if alpha <= 0.0:
+			continue
+		var color := _profile_shore_color(dist_to_water, px, py, data.seed + world_tx * 17)
+		target.set_pixel(px, py, target.get_pixel(px, py).lerp(color, alpha))
+
+
+func _profile_shore_alpha(dist_to_water: float) -> float:
+	if dist_to_water < -14.0 or dist_to_water > 28.0:
+		return 0.0
+	var fade_land := clampf((dist_to_water + 14.0) / 14.0, 0.0, 1.0)
+	var fade_water := 1.0 - clampf((dist_to_water - 10.0) / 18.0, 0.0, 1.0)
+	var edge := fade_land * fade_water
+	edge = edge * edge * (3.0 - 2.0 * edge)
+	return edge * 0.58
+
+
+func _profile_shore_color(dist_to_water: float, px: int, py: int, salt: int) -> Color:
+	var dry_bank := Color(0.43, 0.39, 0.23, 1.0)
+	var wet_bank := Color(0.38, 0.43, 0.28, 1.0)
+	var shallow := Color(0.10, 0.38, 0.39, 1.0)
+	var deeper := Color(0.07, 0.31, 0.36, 1.0)
+	var t := clampf((dist_to_water + 8.0) / 28.0, 0.0, 1.0)
+	var color := dry_bank.lerp(wet_bank, clampf((dist_to_water + 12.0) / 12.0, 0.0, 1.0))
+	color = color.lerp(shallow.lerp(deeper, t), t)
+	var glint_t := 1.0 - clampf(absf(dist_to_water - 2.0) / 8.0, 0.0, 1.0)
+	color = color.lerp(Color(0.42, 0.58, 0.52, 1.0), glint_t * 0.16)
+	var noise := (_hash(px * 19 + salt, py * 23 + salt * 3) - 0.5) * 0.07
+	color.r = clampf(color.r + noise, 0.0, 1.0)
+	color.g = clampf(color.g + noise, 0.0, 1.0)
+	color.b = clampf(color.b + noise, 0.0, 1.0)
+	return color
+
+
+func _profile_filler_sample_color(target: Image, px: int, py: int, hard_y: float,
+		top_bank: bool, want_water: bool, salt: int) -> Color:
+	var water_sample_y := floori(hard_y + 10.0) if top_bank else ceili(hard_y - 10.0)
+	var bank_sample_y := ceili(hard_y - 10.0) if top_bank else floori(hard_y + 10.0)
+	var sample_y := water_sample_y if want_water else bank_sample_y
+	sample_y = clampi(sample_y, 0, target.get_height() - 1)
+	var jitter_x := clampi(px + int(round((_hash(px * 31 + salt, py * 7 + salt) - 0.5) * 4.0)), 0, target.get_width() - 1)
+	var color := target.get_pixel(jitter_x, sample_y)
+	var noise := (_hash(px * 13 + salt, py * 17 + salt * 3) - 0.5) * 0.045
+	color.r = clampf(color.r + noise, 0.0, 1.0)
+	color.g = clampf(color.g + noise, 0.0, 1.0)
+	color.b = clampf(color.b + noise, 0.0, 1.0)
+	return color
+
+
+func _profile_water_fill_color(px: int, py: int, salt: int) -> Color:
+	var water := Color(0.08, 0.34, 0.37, 1.0)
+	var shallow := Color(0.16, 0.45, 0.43, 1.0)
+	var noise := _hash(px * 13 + salt, py * 17 + salt * 3)
+	return water.lerp(shallow, 0.35 + noise * 0.25)
+
+
+func _profile_bank_fill_color(px: int, py: int, salt: int) -> Color:
+	var sand := Color(0.55, 0.48, 0.31, 1.0)
+	var grass := Color(0.28, 0.40, 0.13, 1.0)
+	var noise := _hash(px * 23 + salt, py * 11 + salt * 5)
+	return sand.lerp(grass, noise * 0.32)
+
+
+func _blit_module_image_clipped(target: Image, dst: Vector2i, pool_key: String, tx: int, ty: int,
+		salt: int, rotation: int = _RiverSpriteAtlas.ROTATE_0,
+		flip_h: bool = false, flip_v: bool = false) -> void:
+	var module := _pool_tile_image(pool_key, tx, ty, salt)
+	if module == null:
+		return
+	if rotation != _RiverSpriteAtlas.ROTATE_0 or flip_h or flip_v:
+		module = _transformed_image(module, rotation, flip_h, flip_v)
+	_blit_image_clipped(target, module, dst)
+
+
+func _blit_module_image_from_indices(target: Image, dst: Vector2i, pool_key: String,
+		indices: Array, tx: int, ty: int, salt: int) -> void:
+	var module := _pool_tile_image_from_indices(pool_key, indices, tx, ty, salt)
+	if module == null:
+		return
+	target.blit_rect(module, Rect2i(Vector2i.ZERO, module.get_size()), dst)
+
+
+func _blit_module_image_from_indices_clipped(target: Image, dst: Vector2i, pool_key: String,
+		indices: Array, tx: int, ty: int, salt: int) -> void:
+	var module := _pool_tile_image_from_indices(pool_key, indices, tx, ty, salt)
+	if module == null:
+		return
+	_blit_image_clipped(target, module, dst)
+
+
+func _blit_image_clipped(target: Image, source: Image, dst: Vector2i) -> void:
+	var source_pos := Vector2i.ZERO
+	var target_pos := dst
+	var size := source.get_size()
+	if target_pos.x < 0:
+		source_pos.x = -target_pos.x
+		size.x -= source_pos.x
+		target_pos.x = 0
+	if target_pos.y < 0:
+		source_pos.y = -target_pos.y
+		size.y -= source_pos.y
+		target_pos.y = 0
+	if target_pos.x + size.x > target.get_width():
+		size.x = target.get_width() - target_pos.x
+	if target_pos.y + size.y > target.get_height():
+		size.y = target.get_height() - target_pos.y
+	if size.x <= 0 or size.y <= 0:
+		return
+	target.blit_rect(source, Rect2i(source_pos, size), target_pos)
 
 
 func _blit_module_quadrant(target: Image, dst: Vector2i, pool_key: String, tx: int, ty: int, salt: int) -> void:
@@ -715,6 +1128,24 @@ func _make_directional_blend_tile(base_img: Image, over_img: Image, rotation: in
 	return out
 
 
+func _make_transition_overlay_tile(base_img: Image, transition_img: Image, rotation: int) -> Image:
+	var size := base_img.get_size()
+	var out := Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	var axis_x := rotation == _RiverSpriteAtlas.ROTATE_0 or rotation == _RiverSpriteAtlas.ROTATE_180
+	var invert := rotation == _RiverSpriteAtlas.ROTATE_180 or rotation == _RiverSpriteAtlas.ROTATE_270
+	for y in range(size.y):
+		for x in range(size.x):
+			var t := float(x) / float(maxi(1, size.x - 1)) if axis_x else float(y) / float(maxi(1, size.y - 1))
+			if invert:
+				t = 1.0 - t
+			var edge_alpha := clampf((t - 0.20) / 0.62, 0.0, 1.0)
+			edge_alpha = edge_alpha * edge_alpha * (3.0 - 2.0 * edge_alpha)
+			var source := transition_img.get_pixel(x, y)
+			var alpha := minf(source.a, edge_alpha * 0.72)
+			out.set_pixel(x, y, base_img.get_pixel(x, y).lerp(source, alpha))
+	return out
+
+
 func _depth_blend_info(data: RiverData, tx: int, ty: int) -> Dictionary:
 	var here := _depth_class_at(data, tx, ty)
 	if here < 0:
@@ -758,6 +1189,24 @@ func _pool_tile_image(pool_key: String, tx: int, ty: int, salt: int) -> Image:
 			0,
 			count - 1)
 	return pool[idx] as Image
+
+
+func _pool_tile_image_from_indices(pool_key: String, indices: Array, tx: int, ty: int, salt: int) -> Image:
+	var pool: Array = _tile_pools.get(pool_key, [])
+	if pool.is_empty() or indices.is_empty():
+		return null
+	var valid_indices: Array = []
+	for idx_variant in indices:
+		var idx := int(idx_variant)
+		if idx >= 0 and idx < pool.size():
+			valid_indices.append(idx)
+	if valid_indices.is_empty():
+		return null
+	var choice := clampi(
+			int(floor(_hash(tx * 97 + salt, ty * 53 + salt * 7) * float(valid_indices.size()))),
+			0,
+			valid_indices.size() - 1)
+	return pool[int(valid_indices[choice])] as Image
 
 
 func _bank_fill_pool_key(data: RiverData, tx: int, ty: int) -> String:
@@ -814,6 +1263,8 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": false,
 				"flip_v": false,
+				"water_dirs": [Vector2i(0, 1)],
+				"quadrant": Vector2i(posmod(tx, 2), 0),
 			}
 		if water_n:
 			return {
@@ -821,6 +1272,8 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": false,
 				"flip_v": true,
+				"water_dirs": [Vector2i(0, -1)],
+				"quadrant": Vector2i(posmod(tx, 2), 1),
 			}
 		if water_w:
 			return {
@@ -828,6 +1281,8 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_90,
 				"flip_h": false,
 				"flip_v": false,
+				"water_dirs": [Vector2i(-1, 0)],
+				"quadrant": Vector2i(1, posmod(ty, 2)),
 			}
 		if water_e:
 			return {
@@ -835,6 +1290,8 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_270,
 				"flip_h": false,
 				"flip_v": false,
+				"water_dirs": [Vector2i(1, 0)],
+				"quadrant": Vector2i(0, posmod(ty, 2)),
 			}
 
 	if water_count == 2:
@@ -844,6 +1301,9 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": false,
 				"flip_v": false,
+				"water_dirs": [Vector2i(0, 1), Vector2i(1, 0)],
+				"indices": [0, 1],
+				"quadrant": Vector2i(0, 0),
 			}
 		if water_s and water_w:
 			return {
@@ -851,6 +1311,9 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": true,
 				"flip_v": false,
+				"water_dirs": [Vector2i(0, 1), Vector2i(-1, 0)],
+				"indices": [0, 1],
+				"quadrant": Vector2i(1, 0),
 			}
 		if water_n and water_e:
 			return {
@@ -858,6 +1321,9 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": false,
 				"flip_v": true,
+				"water_dirs": [Vector2i(0, -1), Vector2i(1, 0)],
+				"indices": [0, 1],
+				"quadrant": Vector2i(0, 1),
 			}
 		if water_n and water_w:
 			return {
@@ -865,36 +1331,47 @@ func _bank_tile_def(data: RiverData, tx: int, ty: int) -> Dictionary:
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": true,
 				"flip_v": true,
+				"water_dirs": [Vector2i(0, -1), Vector2i(-1, 0)],
+				"indices": [0, 1],
+				"quadrant": Vector2i(1, 1),
 			}
 
 	if water_count == 3:
 		if not water_n:
 			return {
-				"pool": "shoreline_inner_corner",
+				"pool": "shoreline_edge",
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": false,
 				"flip_v": false,
+				"water_dirs": [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)],
+				"quadrant": Vector2i(posmod(tx, 2), 0),
 			}
 		if not water_e:
 			return {
-				"pool": "shoreline_inner_corner",
-				"rotation": _RiverSpriteAtlas.ROTATE_0,
-				"flip_h": true,
+				"pool": "shoreline_edge",
+				"rotation": _RiverSpriteAtlas.ROTATE_90,
+				"flip_h": false,
 				"flip_v": false,
+				"water_dirs": [Vector2i(0, 1), Vector2i(-1, 0), Vector2i(0, -1)],
+				"quadrant": Vector2i(1, posmod(ty, 2)),
 			}
 		if not water_s:
 			return {
-				"pool": "shoreline_inner_corner",
+				"pool": "shoreline_edge",
 				"rotation": _RiverSpriteAtlas.ROTATE_0,
 				"flip_h": false,
 				"flip_v": true,
+				"water_dirs": [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, -1)],
+				"quadrant": Vector2i(posmod(tx, 2), 1),
 			}
 		if not water_w:
 			return {
-				"pool": "shoreline_inner_corner",
-				"rotation": _RiverSpriteAtlas.ROTATE_0,
-				"flip_h": true,
-				"flip_v": true,
+				"pool": "shoreline_edge",
+				"rotation": _RiverSpriteAtlas.ROTATE_270,
+				"flip_h": false,
+				"flip_v": false,
+				"water_dirs": [Vector2i(1, 0), Vector2i(0, 1), Vector2i(0, -1)],
+				"quadrant": Vector2i(0, posmod(ty, 2)),
 			}
 
 	return {}

@@ -1,3 +1,53 @@
 {
-  "note": "User indicated this sheet is already production ready. Included original and checkerboard-removed transparent copy. Set up frame regions visually in Godot."
+  "name": "angler_moving",
+  "path": "spritesheets/angler_moving_transparent.png",
+  "kind": "combined transparent atlas",
+  "source_files": [
+    {
+      "terrain": "land",
+      "path": "/mnt/LargeNVMe/Downloads/ChatGPT Image Apr 28, 2026, 11_45_50 AM.png"
+    },
+    {
+      "terrain": "shallow",
+      "path": "/mnt/LargeNVMe/Downloads/ChatGPT Image Apr 28, 2026, 11_45_38 AM.png"
+    },
+    {
+      "terrain": "mid",
+      "path": "/mnt/LargeNVMe/Downloads/ChatGPT Image Apr 28, 2026, 01_48_47 PM.png"
+    }
+  ],
+  "frame_size": [
+    64,
+    64
+  ],
+  "max_visible_source_height": 64,
+  "render_height": 64,
+  "layout": {
+    "columns": {
+      "land": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "shallow": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "mid": [
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    "rows": {
+      "north": 0,
+      "south": 1,
+      "west": 2,
+      "east": 3
+    }
+  }
 }

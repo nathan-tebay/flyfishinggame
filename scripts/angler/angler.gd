@@ -23,19 +23,19 @@ const ANIM_CAST_OVERHEAD := &"cast_overhead"
 const CAST_FPS := 12.0
 const MOVE_FPS := 6.0
 const ANGLER_SCENE_SCALE := 0.67
-const MOVING_FRAME_SIZE := Vector2i(150, 255)
-const MOVING_COL_X := [32, 188, 340, 496, 650, 804, 976, 1140, 1316]
-const MOVING_ROW_Y := [0, 278, 548, 824, 1090, 1344, 1588, 1793]
+const MOVING_RENDER_HEIGHT := 64.0
+const MOVING_VISIBLE_HEIGHT := 64.0
+const MOVING_FRAME_SIZE := Vector2i(64, 64)
 const DIRECTION_ROWS := {
 	"north": 0,
-	"east": 2,
-	"south": 4,
-	"west": 6,
+	"south": 1,
+	"west": 2,
+	"east": 3,
 }
 const TERRAIN_COLUMNS := {
-	"land": [0, 1, 2],
-	"shallow": [3, 4, 5],
-	"mid": [6, 7, 8],
+	"land": [0, 1, 2, 3],
+	"shallow": [4, 5, 6, 7],
+	"mid": [8, 9, 10, 11],
 }
 
 signal standing_still
@@ -80,6 +80,7 @@ func play_cast_overhead() -> void:
 	if _sprite == null or _sprite.sprite_frames == null:
 		return
 	_visual_locked_by_cast = true
+	_sprite.scale = Vector2.ONE * ANGLER_SCENE_SCALE
 	_sprite.position = Vector2(0.0, _sprite_anchor_y(_SpriteCatalog.ANGLER_CAST_FRAME_SIZE.y))
 	_sprite.play(ANIM_CAST_OVERHEAD)
 
@@ -124,7 +125,6 @@ func _setup_cast_sprite() -> void:
 
 	_sprite.sprite_frames = frames
 	_sprite.centered = true
-	_sprite.scale = Vector2.ONE * ANGLER_SCENE_SCALE
 	_update_movement_animation(true)
 
 
@@ -168,8 +168,8 @@ func _moving_atlas_frame(texture: Texture2D, row: int, col: int) -> AtlasTexture
 	var frame := AtlasTexture.new()
 	frame.atlas = texture
 	frame.region = Rect2(
-		float(MOVING_COL_X[col] as int),
-		float(MOVING_ROW_Y[row] as int),
+		float(col * MOVING_FRAME_SIZE.x),
+		float(row * MOVING_FRAME_SIZE.y),
 		float(MOVING_FRAME_SIZE.x),
 		float(MOVING_FRAME_SIZE.y)
 	)
@@ -191,6 +191,7 @@ func _update_movement_animation(force: bool = false) -> void:
 		terrain = "mid" if wading_depth >= 0.55 else "shallow"
 
 	var anim := _movement_anim_name(terrain, _last_facing)
+	_sprite.scale = Vector2.ONE * _movement_sprite_scale()
 	_sprite.position = Vector2(0.0, _sprite_anchor_y(MOVING_FRAME_SIZE.y))
 
 	if force or _sprite.animation != anim:
@@ -209,7 +210,11 @@ func _movement_anim_name(terrain: String, direction: String) -> StringName:
 
 
 func _sprite_anchor_y(frame_height: int) -> float:
-	return -float(frame_height) * ANGLER_SCENE_SCALE * 0.5
+	return -float(frame_height) * _sprite.scale.y * 0.5
+
+
+func _movement_sprite_scale() -> float:
+	return MOVING_RENDER_HEIGHT / MOVING_VISIBLE_HEIGHT
 
 
 # ---------------------------------------------------------------------------
