@@ -1,0 +1,18 @@
+[gd_resource type="StandardMaterial3D" load_steps=5 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Ground027/Ground027_1K-JPG_Color.jpg" id="1_albedo"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Ground027/Ground027_1K-JPG_NormalGL.jpg" id="2_normal"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Ground027/Ground027_1K-JPG_Roughness.jpg" id="3_rough"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Ground027/Ground027_1K-JPG_AmbientOcclusion.jpg" id="4_ao"]
+
+[resource]
+resource_name = "DryRiparianSoil"
+albedo_texture = ExtResource("1_albedo")
+roughness_texture = ExtResource("3_rough")
+roughness_texture_channel = 4
+normal_enabled = true
+normal_texture = ExtResource("2_normal")
+ao_enabled = true
+ao_texture = ExtResource("4_ao")
+ao_texture_channel = 4
+uv1_scale = Vector3(0.15, 0.15, 0.15)

@@ -1,0 +1,6 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "BrownTroutRedSpot"
+albedo_color = Color(0.61, 0.105, 0.06, 1)
+roughness = 0.43

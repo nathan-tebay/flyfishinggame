@@ -272,6 +272,17 @@ cmd_shell() {
         bash
 }
 
+cmd_smoke() {
+    _check_plugin
+    local godot; godot="$(_godot_bin)"
+    info "Running 3D scene smoke check..."
+    "$godot" --headless --path "$PROJECT_DIR" --scene res://scenes/RiverWorld3D.tscn --quit
+    info "Running project startup smoke check..."
+    "$godot" --headless --path "$PROJECT_DIR" --quit
+    info "Running forced River3DBuilder mesh-build smoke check..."
+    "$godot" --headless --path "$PROJECT_DIR" --script res://scripts/tools/validate_river_3d_builder.gd
+}
+
 cmd_clean() {
     info "Removing ${BUILD_DIR}..."
     rm -rf "$BUILD_DIR"
@@ -310,6 +321,7 @@ Commands:
   setup [--force]     Install Godot ${GODOT_VERSION} + godot-sqlite plugin
   run   [args]        Run the game (native Godot, needs GPU)
   editor [args]       Open the Godot editor
+  smoke               Run headless scene/project/builder smoke checks
   export <platform>   Export a release build via Podman container
                         platforms: linux | windows | all
   shell               Open an interactive shell in the export container
@@ -338,6 +350,7 @@ case "${1:-help}" in
     setup)   shift; cmd_setup  "$@" ;;
     run)     shift; cmd_run    "$@" ;;
     editor)  shift; cmd_editor "$@" ;;
+    smoke)   cmd_smoke ;;
     export)  shift; cmd_export "${1:-all}" ;;
     shell)   cmd_shell ;;
     clean)   cmd_clean ;;

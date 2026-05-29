@@ -1,0 +1,97 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/river/river_world_3d.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/river/river_3d_builder.gd" id="2_builder"]
+[ext_resource type="PackedScene" path="res://scenes/FirstPersonAngler.tscn" id="3_player"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tackle"]
+bg_color = Color(0.035, 0.055, 0.065, 0.78)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.58, 0.55, 0.36, 0.62)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[node name="RiverWorld3D" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="River3DBuilder" type="Node3D" parent="."]
+script = ExtResource("2_builder")
+
+[node name="FirstPersonAngler" parent="." instance=ExtResource("3_player")]
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="StatusLabel" type="Label" parent="HUD"]
+offset_left = 22.0
+offset_top = 18.0
+offset_right = 880.0
+offset_bottom = 78.0
+theme_override_colors/font_outline_color = Color(0.06, 0.09, 0.10, 0.82)
+theme_override_constants/outline_size = 4
+text = "Madison River 3D"
+
+[node name="CastLabel" type="Label" parent="HUD"]
+offset_left = 22.0
+offset_top = 92.0
+offset_right = 1120.0
+offset_bottom = 140.0
+theme_override_colors/font_outline_color = Color(0.06, 0.09, 0.10, 0.82)
+theme_override_constants/outline_size = 4
+text = ""
+
+[node name="Reticle" type="Label" parent="HUD"]
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -8.0
+offset_top = -14.0
+offset_right = 8.0
+offset_bottom = 14.0
+theme_override_colors/font_outline_color = Color(0.04, 0.06, 0.07, 0.75)
+theme_override_constants/outline_size = 3
+text = "+"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TacklePanel" type="PanelContainer" parent="HUD"]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -314.0
+offset_top = -142.0
+offset_right = -20.0
+offset_bottom = -20.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_tackle")
+
+[node name="Margin" type="MarginContainer" parent="HUD/TacklePanel"]
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="HUD/TacklePanel/Margin"]
+theme_override_constants/separation = 5
+
+[node name="Header" type="Label" parent="HUD/TacklePanel/Margin/VBox"]
+theme_override_colors/font_color = Color(0.85, 0.76, 0.48, 1)
+text = "DRY FLY"
+
+[node name="FlyLabel" type="Label" parent="HUD/TacklePanel/Margin/VBox"]
+theme_override_colors/font_color = Color(0.94, 0.96, 0.91, 1)
+text = "Blue-Winged Olive Dun\nMayfly · Adult dry"
+
+[node name="CastStateLabel" type="Label" parent="HUD/TacklePanel/Margin/VBox"]
+theme_override_colors/font_color = Color(0.94, 0.76, 0.34, 1)
+text = "READY TO CAST"
+
+[node name="HatchLabel" type="Label" parent="HUD/TacklePanel/Margin/VBox"]
+theme_override_colors/font_color = Color(0.62, 0.72, 0.68, 1)
+theme_override_font_sizes/font_size = 12
+text = "Surface life: adult mayflies / caddis\nQ  cycle pattern"

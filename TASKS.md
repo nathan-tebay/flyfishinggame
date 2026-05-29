@@ -1,5 +1,7 @@
 # Implementation Tasks
 
+> Historical 2D implementation archive. The supported runtime is now `scenes/RiverWorld3D.tscn`; do not restore removed 2D tasks, scenes, or assets.
+
 Phased agentic implementation plan for the fly fishing game PoC. Each phase is a self-contained session designed to fit within token limits. Always read `CLAUDE.md` and `GDD.md` before starting a phase.
 
 **Rules for each session:**

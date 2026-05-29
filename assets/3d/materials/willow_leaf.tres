@@ -1,0 +1,8 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "WillowLeafClusters"
+albedo_color = Color(0.30, 0.48, 0.16, 1)
+roughness = 0.94
+subsurf_scatter_enabled = true
+subsurf_scatter_strength = 0.16

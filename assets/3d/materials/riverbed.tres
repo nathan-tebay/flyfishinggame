@@ -1,0 +1,19 @@
+[gd_resource type="ShaderMaterial" load_steps=6 format=3]
+
+[ext_resource type="Shader" path="res://assets/3d/shaders/riverbed.gdshader" id="1_bed_shader"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_Color.jpg" id="2_albedo"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_NormalGL.jpg" id="3_normal"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_Roughness.jpg" id="4_rough"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_AmbientOcclusion.jpg" id="5_ao"]
+
+[resource]
+resource_name = "MadisonRiverbed"
+shader = ExtResource("1_bed_shader")
+shader_parameter/gravel_color = Color(0.38, 0.34, 0.26, 1)
+shader_parameter/cobble_color = Color(0.25, 0.29, 0.25, 1)
+shader_parameter/deep_color = Color(0.10, 0.17, 0.16, 1)
+shader_parameter/albedo_texture = ExtResource("2_albedo")
+shader_parameter/normal_texture = ExtResource("3_normal")
+shader_parameter/roughness_texture = ExtResource("4_rough")
+shader_parameter/ao_texture = ExtResource("5_ao")
+shader_parameter/texture_scale = 0.17

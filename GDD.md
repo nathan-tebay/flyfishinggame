@@ -1,6 +1,8 @@
 # Game Design Document — Fly Fishing Game
 *Working Title: TBD*
 
+> Legacy 2D design archive. The supported implementation is now the first-person 3D Lower Madison reach documented in `docs/LOWER_MADISON_REACH.md`; removed 2D scenes/assets are not implementation targets.
+
 ---
 
 ## Overview

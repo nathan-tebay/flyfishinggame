@@ -1,0 +1,10 @@
+[gd_resource type="ShaderMaterial" load_steps=2 format=3]
+
+[ext_resource type="Shader" path="res://assets/3d/shaders/wood_bark.gdshader" id="1_bark"]
+
+[resource]
+resource_name = "WeatheredDriftwood"
+shader = ExtResource("1_bark")
+shader_parameter/bark_dark = Color(0.18, 0.12, 0.075, 1)
+shader_parameter/bark_light = Color(0.42, 0.30, 0.19, 1)
+shader_parameter/weathered = 0.34

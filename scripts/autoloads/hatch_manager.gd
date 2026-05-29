@@ -1,8 +1,6 @@
 extends Node
 
-# Mother's Day Caddis hatch state machine.
-# Drives insect profile availability for FlyMatcher and NetSampler.
-# Visual insect particles are spawned by RiverWorld in response to hatch_state_changed.
+# Adult mayfly/caddis hatch state for authored Lower Madison surface activity.
 
 enum HatchState { NO_HATCH, PRE_HATCH, EMERGER, PEAK_HATCH, SPINNER_FALL }
 
@@ -57,6 +55,8 @@ func _build_profiles(state: int) -> Array:
 				   "drift", Color(0.32, 0.28, 0.12)),
 				_p("caddis", "pupa",  "medium", "mid",    0.50,
 				   "drift", Color(0.42, 0.35, 0.16)),
+				_p("mayfly", "adult", "small", "surface", 0.18,
+				   "sail", Color(0.42, 0.42, 0.34)),
 			]
 		HatchState.EMERGER:
 			return [
@@ -64,13 +64,23 @@ func _build_profiles(state: int) -> Array:
 				   "drift", Color(0.42, 0.35, 0.16)),
 				_p("caddis", "emerger", "medium", "surface", 0.45,
 				   "drift", Color(0.52, 0.42, 0.18)),
+				_p("mayfly", "adult", "small", "surface", 0.34,
+				   "sail", Color(0.46, 0.45, 0.37)),
 			]
 		HatchState.PEAK_HATCH:
-			return [_p("caddis", "adult",   "medium", "surface", 0.90,
-					   "skitter", Color(0.62, 0.50, 0.22))]
+			return [
+				_p("caddis", "adult", "medium", "surface", 0.90,
+				   "skitter", Color(0.62, 0.50, 0.22)),
+				_p("mayfly", "adult", "small", "surface", 0.48,
+				   "sail", Color(0.50, 0.48, 0.38)),
+			]
 		HatchState.SPINNER_FALL:
-			return [_p("caddis", "spinner", "medium", "surface", 0.70,
-					   "drift",   Color(0.55, 0.40, 0.18))]
+			return [
+				_p("mayfly", "adult", "small", "surface", 0.72,
+				   "spinner_fall", Color(0.42, 0.38, 0.28)),
+				_p("caddis", "adult", "medium", "surface", 0.34,
+				   "skitter", Color(0.55, 0.40, 0.18)),
+			]
 		_:
 			return []
 

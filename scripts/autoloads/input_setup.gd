@@ -16,25 +16,18 @@ func _setup_actions() -> void:
 	_key_and_axis("move_up",    KEY_W, JOY_AXIS_LEFT_Y, -1.0)
 	_key_and_axis("move_down",  KEY_S, JOY_AXIS_LEFT_Y,  1.0)
 
-	# Line management
-	_key("feed_line",  KEY_F)
-	_axis("feed_line",  JOY_AXIS_TRIGGER_RIGHT,  1.0)
-	_key("strip_line", KEY_R)
-	_axis("strip_line", JOY_AXIS_TRIGGER_LEFT,   1.0)
-
-	# Casting rhythm (right stick Y / arrow keys)
-	_key_and_axis("cast_back",    KEY_DOWN, JOY_AXIS_RIGHT_Y,  1.0)
-	_key_and_axis("cast_forward", KEY_UP,   JOY_AXIS_RIGHT_Y, -1.0)
-
-	# Context-sensitive confirm (complete cast / hookset)
+	# Cast
+	_key_and_button("select_cast_target", KEY_SPACE, JOY_BUTTON_A)
+	_key_and_button("back_cast", KEY_B, JOY_BUTTON_LEFT_STICK)
+	_key_and_button("forward_cast", KEY_F, JOY_BUTTON_RIGHT_STICK)
+	_key_and_button("overhead_cast", KEY_O, JOY_BUTTON_RIGHT_SHOULDER)
+	_key_and_button("roll_cast", KEY_R, JOY_BUTTON_LEFT_SHOULDER)
 	_key_and_button("complete_cast", KEY_SPACE, JOY_BUTTON_A)
-	_key_and_button("hookset",       KEY_SPACE, JOY_BUTTON_A)
+	_key("cycle_fly", KEY_Q)
+	_key("cast_zoom_in", KEY_Z)
+	_key("cast_zoom_out", KEY_X)
 
-	# Fly selector
-	_key_and_button("swap_fly",   KEY_TAB,    JOY_BUTTON_Y)
-
-	# Other actions
-	_key_and_button("net_sample", KEY_N,      JOY_BUTTON_B)
+	# Mouse capture / pause
 	_key_and_button("pause_game", KEY_ESCAPE, JOY_BUTTON_START)
 
 

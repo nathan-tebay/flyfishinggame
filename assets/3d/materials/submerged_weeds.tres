@@ -1,0 +1,10 @@
+[gd_resource type="ShaderMaterial" load_steps=2 format=3]
+
+[ext_resource type="Shader" path="res://assets/3d/shaders/submerged_weeds.gdshader" id="1_weed_shader"]
+
+[resource]
+resource_name = "SubmergedWeeds"
+shader = ExtResource("1_weed_shader")
+shader_parameter/blade_color = Color(0.025, 0.105, 0.045, 1)
+shader_parameter/sway_speed = 0.85
+shader_parameter/sway_amount = 0.026

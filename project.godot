@@ -12,7 +12,7 @@ config_version=5
 
 config/name="FlyFishingGame"
 run/main_scene="res://scenes/SessionConfig.tscn"
-config/features=PackedStringArray("4.3", "GL Compatibility")
+config/features=PackedStringArray("4.3", "Forward Plus")
 
 [autoload]
 
@@ -21,6 +21,7 @@ GameManager="*res://scripts/autoloads/game_manager.gd"
 TimeOfDay="*res://scripts/autoloads/time_of_day.gd"
 InputSetup="*res://scripts/autoloads/input_setup.gd"
 HatchManager="*res://scripts/autoloads/hatch_manager.gd"
+GDAIMCPRuntime="*res://addons/gdai-mcp-plugin-godot/gdai_mcp_runtime.gd"
 
 [display]
 
@@ -31,10 +32,8 @@ window/stretch/aspect="expand"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godot-sqlite/plugin.cfg")
+enabled=PackedStringArray("res://addons/gdai-mcp-plugin-godot/plugin.cfg", "res://addons/godot-sqlite/plugin.cfg")
 
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"

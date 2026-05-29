@@ -1,0 +1,23 @@
+[gd_resource type="ShaderMaterial" load_steps=6 format=3]
+
+[ext_resource type="Shader" path="res://assets/3d/shaders/terrain_mottled.gdshader" id="1_terrain"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_Color.jpg" id="2_albedo"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_NormalGL.jpg" id="3_normal"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_Roughness.jpg" id="4_rough"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Gravel027/Gravel027_1K-JPG_AmbientOcclusion.jpg" id="5_ao"]
+
+[resource]
+resource_name = "WetGravelMottled"
+shader = ExtResource("1_terrain")
+shader_parameter/color_a = Color(0.16, 0.17, 0.15, 1)
+shader_parameter/color_b = Color(0.30, 0.28, 0.22, 1)
+shader_parameter/fleck_color = Color(0.42, 0.38, 0.30, 1)
+shader_parameter/patch_scale = 2.1
+shader_parameter/fleck_amount = 0.16
+shader_parameter/material_roughness = 0.86
+shader_parameter/albedo_texture = ExtResource("2_albedo")
+shader_parameter/normal_texture = ExtResource("3_normal")
+shader_parameter/roughness_texture = ExtResource("4_rough")
+shader_parameter/ao_texture = ExtResource("5_ao")
+shader_parameter/texture_scale = 0.28
+shader_parameter/texture_amount = 0.96

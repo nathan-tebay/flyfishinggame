@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "FlyLine"
+shading_mode = 0
+albedo_color = Color(0.95, 0.82, 0.34, 1)
+roughness = 0.30
+emission_enabled = true
+emission = Color(0.95, 0.75, 0.22, 1)
+emission_energy_multiplier = 0.35

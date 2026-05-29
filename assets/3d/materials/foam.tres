@@ -1,0 +1,10 @@
+[gd_resource type="ShaderMaterial" load_steps=2 format=3]
+
+[ext_resource type="Shader" path="res://assets/3d/shaders/foam_flow.gdshader" id="1_foam_shader"]
+
+[resource]
+resource_name = "FoamFlow"
+shader = ExtResource("1_foam_shader")
+shader_parameter/foam_color = Color(0.82, 0.92, 0.93, 0.20)
+shader_parameter/pulse_speed = 2.3
+shader_parameter/streak_scale = 42.0

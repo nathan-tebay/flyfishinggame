@@ -1,12 +1,16 @@
 # Fly Fishing Game
 
-16-bit style 2D fly fishing game set on the Madison River, Montana. Built in Godot 4 with GDScript. Grounded in realistic fly fishing principles — hatch-driven fish behavior, edge feeding philosophy, and skill-based casting.
+First-person 3D fly fishing environment set on a compressed real bend of the Lower Madison River immediately upstream of Black's Ford, Montana. Built in Godot 4.3 with GDScript and Forward+ desktop rendering.
 
-See [`GDD.md`](GDD.md) for the full game design specification.
+## Current vertical slice
 
-**Engine:** Godot 4.3  
-**Language:** GDScript  
-**Target platforms:** Linux, Windows (initial), Android/iOS (future)
+- Walk a dry riparian bank and wade into moving water.
+- Select adult mayfly or caddis dry-fly imitations and cast into authored habitat zones.
+- Read local habitat/current, selected fly, casting state, and nearby fish-hold response in the HUD.
+- Observe modeled rainbow trout, brown trout, mountain whitefish, and sparse adult surface insects.
+- Explore a fixed USGS-derived bend with gravel shelves, exposed bars, submerged cobble, weed edges, boulders, willows, cottonwoods, and valley relief.
+
+Session seeds change fish-hold occupancy/session conditions, not terrain or prop geometry.
 
 ## Quick start
 
@@ -16,87 +20,45 @@ See [`GDD.md`](GDD.md) for the full game design specification.
 ./run.sh editor    # Open Godot editor
 ```
 
-**Native (run/editor):** requires Godot 4.3 on PATH (`godot4`, `godot`, or `Godot`).
+Controls: `WASD` move, mouse look, click or `Space` cast, `Q` cycle adult dry fly, `Esc` release/capture mouse.
 
-## All commands
-
-```bash
-./run.sh setup            # Download godot-sqlite plugin
-./run.sh run              # Run the game
-./run.sh editor           # Open Godot editor
-./run.sh export linux     # Export Linux build (via Podman container)
-./run.sh export windows   # Export Windows build (via Podman container)
-./run.sh export all       # Export all platforms
-./run.sh shell            # Interactive shell in export container
-./run.sh clean            # Remove builds/
-```
-
-**Container (export/shell):** requires Podman. Uses `barichello/godot-ci:4.3`.  
-**Export prerequisite:** `export_presets.cfg` must exist — create via Godot editor: Project → Export.
-
-## Validation (headless)
+## Validation
 
 ```bash
-godot4 --headless --path /mnt/LargeNVMe/Projects/GitHub/personal/flyfishinggame --quit
+godot4 --headless --path . --scene res://scenes/RiverWorld3D.tscn --quit
+godot4 --headless --path . --quit
 ```
-
-## Gameplay overview
-
-1. **Scout** — pan the camera (up to 3 screen widths) to locate feeding fish at the right depth layer
-2. **Approach** — wade or stay on bank; manage shadow and vibration spook risk
-3. **Cast** — false cast to load line, present the fly at the right time and position
-4. **Mend** — adjust drag during the drift to keep the fly natural
-5. **Strike** — hookset timing differs for dry fly (rise/splash visual cue) and nymph (floating indicator)
-6. **Land** — successfully hooked fish go into the catch log with a procedurally generated fish photo
-
-Difficulty is configurable — all spook thresholds, fly match tolerances, and fish behavior parameters load from the database.
 
 ## Project structure
 
 ```
 flyfishinggame/
 ├── scenes/
-│   ├── RiverWorld.tscn      # Main scene
-│   ├── Angler.tscn          # Player character
-│   ├── Fish.tscn            # Fish entity
-│   ├── Main.tscn            # Entry point
-│   └── SessionConfig.tscn   # Session setup
+│   ├── SessionConfig.tscn       # Session setup / entry
+│   ├── RiverWorld3D.tscn        # Playable first-person river world
+│   └── FirstPersonAngler.tscn   # First-person controller
 ├── scripts/
-│   ├── river/               # RiverData, RiverGenerator, RiverRenderer, RiverCamera
-│   ├── angler/              # Player movement, shadow, vibration
-│   ├── casting/             # CastingController, DriftController
-│   ├── fish/                # FishAI, FishVisionCone, SpookCalculator
-│   ├── catching/            # HooksetController, CatchLog
-│   ├── flies/               # FlySelector, FlyMatcher
-│   ├── ui/                  # RodArcHUD, FlySelector UI
-│   ├── autoloads/           # DatabaseManager, HatchManager, TimeOfDay
-│   └── main.gd
-├── assets/
-│   ├── sprites/             # Angler, fish, insects, props (source art)
-│   └── terrain/             # River terrain atlas and TileSet
-├── addons/                  # godot-sqlite plugin
-├── GDD.md                   # Full game design document
+│   ├── river/
+│   │   ├── lower_madison_reach.gd  # Fixed reach data/query interface
+│   │   ├── river_3d_builder.gd     # Authored terrain/channel/props mesh build
+│   │   └── river_world_3d.gd       # Scene/gameplay integration
+│   ├── models/                  # Procedural fish and adult insect models
+│   ├── player/                  # First-person controller and modeled fly rod
+│   ├── ui/session_config.gd
+│   └── autoloads/              # Session persistence/time/hatch/input services
+├── assets/3d/
+│   ├── geodata/                # Archived NHD/3DEP sources and runtime samples
+│   ├── materials/ + shaders/   # Godot rendering resources
+│   └── pbr/ambientcg/          # Imported CC0 surface maps/license record
+├── docs/LOWER_MADISON_REACH.md
+├── resources/difficulty_config.gd
 ├── project.godot
-└── run.sh                   # All build/run/export commands
+└── run.sh
 ```
 
-## Core systems
+## Data and assets
 
-| System | Description |
-|---|---|
-| `RiverGenerator` | Procedural river: depth profile (FastNoiseLite) → tile map → current map → structure placement → hold scoring |
-| `RiverRenderer` | Depth-field rendering pipeline with box blur, current lightening, rock wakes, and debug hold overlay |
-| `CastingController` | State machine: IDLE → FALSE_CASTING → PRESENTATION → RESULT → DRIFT. Rod arc HUD with timing cue |
-| `FishAI` | Spook state machine: FEEDING → ALERT → SPOOKED → RELOCATING → HOLDING. Feeding edge logic, intrusion memory |
-| `HatchManager` | Time-of-day hatch state machine driving insect spawns and fish feeding modes |
-| `SpookCalculator` | Unified spook radius: base × size × cover × time_of_day × approach_angle × difficulty |
-| `CatchLog` | Records all catches with procedurally generated fish photo snapshots |
-| `DatabaseManager` | Autoload. SQLite persistence for difficulty presets, settings, and catch history |
-| `DifficultyConfig` | Resource passed to all difficulty-variable systems — values never hardcoded |
-| `TimeOfDay` | Dawn/Morning/Midday/Afternoon/Dusk/Night cycle; drives lighting, hatch windows, spook modifiers |
+- River/terrain geometry: public USGS NHD and 3DEP data. See [`docs/LOWER_MADISON_REACH.md`](docs/LOWER_MADISON_REACH.md).
+- PBR surfaces: ambientCG CC0 assets. See [`assets/3d/pbr/ambientcg/LICENSE_SOURCES.md`](assets/3d/pbr/ambientcg/LICENSE_SOURCES.md).
 
-## Design documentation
-
-- [`GDD.md`](GDD.md) — game design document (overview, visual style, all core systems)
-- `flyfishinggame-planning session N.txt` — session design narratives (7 sessions)
-- `flyfishinggame-transcript session N.txt` — decision logs with rationale (7 sessions)
+The previous 2D/tile runtime and its sprite/terrain assets have been removed; only the first-person 3D runtime is supported.

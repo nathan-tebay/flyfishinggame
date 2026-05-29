@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "AdultInsectDetail"
+shading_mode = 0
+albedo_color = Color(0.095, 0.072, 0.042, 1)
+roughness = 0.78

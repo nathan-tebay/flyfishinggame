@@ -1,0 +1,6 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "Rod"
+albedo_color = Color(0.12, 0.08, 0.04, 1)
+roughness = 0.45

@@ -3,7 +3,7 @@ extends Node2D
 
 const DifficultyConfig = preload("res://resources/difficulty_config.gd")
 
-## Session configuration screen — shown at startup before entering RiverWorld.
+## Session configuration screen — shown at startup before entering the authored 3D reach.
 ## Tab to cycle fields, ←/→ to change value, number keys to type seed, Enter to start.
 
 const HOURS: Array        = [4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 14.0, 17.0, 18.0, 20.0]
@@ -83,7 +83,7 @@ func _start_session() -> void:
 	TimeOfDay.set_time_scale(time_scale)
 
 	GameManager.new_session(seed, start_hour, tier)
-	get_tree().change_scene_to_file("res://scenes/RiverWorld.tscn")
+	get_tree().change_scene_to_file("res://scenes/RiverWorld3D.tscn")
 
 
 func _draw() -> void:
@@ -96,7 +96,7 @@ func _draw() -> void:
 
 	# Title
 	draw_string(font, Vector2(cx - 300.0, 110.0),
-		"MADISON RIVER  ·  FLY FISHING",
+		"LOWER MADISON  ·  BLACK'S FORD BEND",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 36, Color(0.88, 0.78, 0.50))
 	draw_string(font, Vector2(cx - 90.0, 150.0),
 		"Session Setup",

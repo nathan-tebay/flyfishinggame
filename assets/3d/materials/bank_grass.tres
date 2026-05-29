@@ -1,0 +1,23 @@
+[gd_resource type="ShaderMaterial" load_steps=6 format=3]
+
+[ext_resource type="Shader" path="res://assets/3d/shaders/terrain_mottled.gdshader" id="1_terrain"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Grass001/Grass001_1K-JPG_Color.jpg" id="2_albedo"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Grass001/Grass001_1K-JPG_NormalGL.jpg" id="3_normal"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Grass001/Grass001_1K-JPG_Roughness.jpg" id="4_rough"]
+[ext_resource type="Texture2D" path="res://assets/3d/pbr/ambientcg/Grass001/Grass001_1K-JPG_AmbientOcclusion.jpg" id="5_ao"]
+
+[resource]
+resource_name = "BankGrassMottled"
+shader = ExtResource("1_terrain")
+shader_parameter/color_a = Color(0.12, 0.22, 0.07, 1)
+shader_parameter/color_b = Color(0.25, 0.37, 0.12, 1)
+shader_parameter/fleck_color = Color(0.33, 0.28, 0.16, 1)
+shader_parameter/patch_scale = 0.34
+shader_parameter/fleck_amount = 0.08
+shader_parameter/material_roughness = 0.97
+shader_parameter/albedo_texture = ExtResource("2_albedo")
+shader_parameter/normal_texture = ExtResource("3_normal")
+shader_parameter/roughness_texture = ExtResource("4_rough")
+shader_parameter/ao_texture = ExtResource("5_ao")
+shader_parameter/texture_scale = 0.23
+shader_parameter/texture_amount = 0.90
