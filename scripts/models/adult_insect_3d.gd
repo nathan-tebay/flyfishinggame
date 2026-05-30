@@ -32,11 +32,17 @@ func _ready() -> void:
 		_build_mayfly()
 	else:
 		_build_caddis()
+	set_process(false)
+	if animates:
+		var t := Timer.new()
+		t.name = "AnimTimer"
+		t.wait_time = 0.05
+		t.autostart = true
+		t.timeout.connect(_animate_step)
+		add_child(t)
 
 
-func _process(_delta: float) -> void:
-	if not animates:
-		return
+func _animate_step() -> void:
 	var time := Time.get_ticks_msec() * 0.001 + animation_phase
 	position = _anchor + Vector3(sin(time * 0.84) * 0.16, sin(time * 2.3) * 0.035, cos(time * 0.72) * 0.10)
 	var flap := sin(time * 15.0) * 0.17

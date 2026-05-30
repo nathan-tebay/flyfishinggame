@@ -85,10 +85,21 @@ var _crossstream := Vector2.DOWN
 var _length := 0.0
 
 
+var _station_frames: Array = []
+
 func _init() -> void:
 	_load_source_centerline()
 	_build_stations()
 	_load_terrain_samples()
+	_precompute_station_frames()
+
+
+func _precompute_station_frames() -> void:
+	_station_frames.resize(stations.size())
+	var n := stations.size()
+	for i in range(n):
+		var frac := float(i) / float(max(n - 1, 1))
+		_station_frames[i] = frame_at_fraction(frac)
 
 
 func station_count() -> int:
@@ -634,7 +645,15 @@ func _nearest_channel_frame(point: Vector2) -> Dictionary:
 			continue
 		best_distance = distance
 		var fraction := lerpf(float(current["fraction"]), float(next["fraction"]), weight)
-		var channel_frame := frame_at_fraction(fraction)
+		var ci := clampi(i, 0, _station_frames.size() - 1)
+		var ni := clampi(i + 1, 0, _station_frames.size() - 1)
+		var fa := _station_frames[ci] as Dictionary
+		var fb := _station_frames[ni] as Dictionary
+		var channel_frame := {
+			"tangent": (fa["tangent"] as Vector2).lerp(fb["tangent"] as Vector2, weight),
+			"normal": (fa["normal"] as Vector2).lerp(fb["normal"] as Vector2, weight),
+			"position": (fa["position"] as Vector2).lerp(fb["position"] as Vector2, weight),
+		}
 		var tangent: Vector2 = channel_frame["tangent"]
 		var normal: Vector2 = channel_frame["normal"]
 		var center: Vector2 = channel_frame["position"]

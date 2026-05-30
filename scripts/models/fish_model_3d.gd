@@ -37,10 +37,7 @@ func _ready() -> void:
 	_build_eyes()
 	_build_head_details()
 	_build_species_markings()
-
-
-func _process(_delta: float) -> void:
-	animate_swim(Time.get_ticks_msec() * 0.0022)
+	set_process(false)
 
 
 func animate_swim(elapsed_seconds: float) -> void:

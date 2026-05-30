@@ -12,8 +12,10 @@ const MAT_MEADOW = preload("res://assets/3d/materials/meadow_grass.tres")
 const MAT_MOUNTAIN = preload("res://assets/3d/materials/distant_mountain.tres")
 const MAT_WATER = preload("res://assets/3d/materials/river_water.tres")
 const FLY_OPTIONS := [
-	{"name": "Blue-Winged Olive Dun", "species": "Mayfly", "phase": "Adult", "kind": 0},
-	{"name": "Elk Hair Caddis", "species": "Caddis", "phase": "Adult", "kind": 1},
+	{"name": "Blue-Winged Olive Dun", "species": "Mayfly", "phase": "Adult", "kind": 0, "surface": true, "depth_layer": "surface"},
+	{"name": "Elk Hair Caddis", "species": "Caddis", "phase": "Adult", "kind": 1, "surface": true, "depth_layer": "surface"},
+	{"name": "Hare's Ear Nymph", "species": "Mayfly", "phase": "Nymph", "kind": 0, "surface": false, "depth_layer": "bottom"},
+	{"name": "Soft Hackle Emerger", "species": "Mayfly", "phase": "Emerger", "kind": 0, "surface": false, "depth_layer": "mid"},
 ]
 const DEBUG_VIEW_NAMES := [
 	"off",
@@ -44,6 +46,7 @@ const CAST_TARGET_NUDGE_SPEED := 6.8
 const CAST_ZOOM_FOVS := [68.0, 48.0, 32.0]
 const AMBIENT_UPDATE_INTERVAL := 0.10
 const FISH_AI_UPDATE_INTERVAL := 0.12
+const FISH_VISUAL_UPDATE_INTERVAL := 0.06
 const HUD_UPDATE_INTERVAL := 0.25
 const LIGHT_UPDATE_INTERVAL := 0.50
 const FOAM_FLECK_SPAWN_INTERVAL := 0.28
@@ -72,6 +75,8 @@ var _last_cast_line_state := ""
 var _last_cast_line_fly_index := -1
 var _cast_line_cache_valid := false
 var _cast_target_marker: MeshInstance3D = null
+var _cast_target_marker_mesh: TorusMesh = null
+var _cast_target_marker_material: StandardMaterial3D = null
 var _selected_cast_target: Dictionary = {}
 var _cast_message := ""
 var _cast_message_timer := 0.0
@@ -98,6 +103,7 @@ var _rise_timer := 0.0
 var _foam_timer := 0.0
 var _ambient_update_accumulator := 0.0
 var _fish_ai_update_accumulator := 0.0
+var _fish_visual_update_accumulator := 0.0
 var _hud_update_accumulator := 0.0
 var _light_update_accumulator := 0.0
 var _bird_flock: Node3D = null
@@ -119,10 +125,22 @@ var _last_sound_cue := ""
 var _default_camera_fov := 68.0
 var _cast_zoom_index := 0
 var ambient_effect_density := 1.0
+var _drag_refusal_fired: bool = false
+var _fighting: bool = false
+var _fight_timer: float = 0.0
+var _fight_duration: float = 0.0
+var _fight_tension: float = 0.5
+var _fighting_fish: Dictionary = {}
+var _fighting_fly_name: String = ""
+@export var audio_cue_streams: Dictionary = {}
+var _audio_player: AudioStreamPlayer = null
 
 
 func _ready() -> void:
 	process_priority = 20
+	_audio_player = AudioStreamPlayer.new()
+	_audio_player.name = "AudioCuePlayer"
+	add_child(_audio_player)
 	_ensure_session()
 	_setup_lighting()
 	_generate_river()
@@ -149,6 +167,7 @@ func _process(delta: float) -> void:
 
 func _update_time_critical_state(delta: float) -> void:
 	_update_dry_fly_drift(delta)
+	_update_fish_fight(delta)
 	_update_cast_target_controls(delta)
 	_net_sample_timer = maxf(_net_sample_timer - delta, 0.0)
 	if _cast_message_timer > 0.0:
@@ -180,6 +199,11 @@ func _update_scheduled_systems(delta: float) -> void:
 		var fish_delta := _fish_ai_update_accumulator
 		_fish_ai_update_accumulator = 0.0
 		_update_fish_ai(fish_delta)
+
+	_fish_visual_update_accumulator += delta
+	if _fish_visual_update_accumulator >= FISH_VISUAL_UPDATE_INTERVAL:
+		_fish_visual_update_accumulator = 0.0
+		_update_visible_fish_animation()
 
 	_hud_update_accumulator += delta
 	if _hud_update_accumulator >= HUD_UPDATE_INTERVAL:
@@ -349,7 +373,7 @@ func try_hookset() -> bool:
 	_cast_state_timer = 0.0
 	if hooked:
 		_session_stats["hooked"] = int(_session_stats.get("hooked", 0)) + 1
-		_land_hooked_fish(fish, fly_name)
+		_start_fish_fight(fish, fly_name)
 	else:
 		_session_stats["missed"] = int(_session_stats.get("missed", 0)) + 1
 		_play_sound_cue("missed_take")
@@ -473,19 +497,38 @@ func _update_surface_rises(delta: float) -> void:
 
 
 func _spawn_surface_rise() -> void:
-	var holds := reach.hold_points()
-	if holds.is_empty():
+	if builder == null or builder.fish_hold_entries.is_empty():
 		return
 	var tick := int(Time.get_ticks_msec() / 733) + GameManager.session_seed
-	var hold := holds[posmod(tick, holds.size())] as Dictionary
-	var fraction := float(hold["fraction"])
-	var lateral := float(hold["lateral"])
-	var depth := reach.water_depth_at(fraction, lateral)
+	var fish := _surface_rise_fish_for_tick(tick)
+	if fish.is_empty():
+		return
+	var depth := float(fish.get("depth", 0.0))
 	if depth < 0.22:
 		return
 	var offset := Vector3(sin(float(tick) * 0.87) * 0.38, 0.0, cos(float(tick) * 0.61) * 0.28)
-	var center := reach.position_at(fraction, lateral, LowerMadisonReachScript.WATER_HEIGHT + 0.027) + offset
-	_spawn_surface_rise_at(center, 0.58 + clampf(depth, 0.0, 0.7) * 0.58)
+	var center := fish.get("surface_position", reach.position_at(float(fish["fraction"]), float(fish["lateral"]), LowerMadisonReachScript.WATER_HEIGHT + 0.027)) as Vector3
+	center += offset
+	var rise_weight := float(fish.get("surface_rise_weight", 0.5))
+	_spawn_surface_rise_at(center, 0.46 + clampf(depth, 0.0, 0.85) * 0.52 + rise_weight * 0.22)
+
+
+func _surface_rise_fish_for_tick(tick: int) -> Dictionary:
+	var fish_count := builder.fish_hold_entries.size()
+	for attempt in range(fish_count):
+		var fish := builder.fish_hold_entries[posmod(tick + attempt * 3, fish_count)] as Dictionary
+		if not bool(fish.get("available", true)):
+			continue
+		if String(fish.get("state", "feeding")) == "spooked":
+			continue
+		var rise_weight := float(fish.get("surface_rise_weight", 0.5))
+		var roll := float(posmod(tick + attempt * 29 + int(float(fish.get("length", 0.4)) * 100.0), 100)) / 100.0
+		if roll <= rise_weight:
+			return fish
+	var fallback := builder.fish_hold_entries[posmod(tick, fish_count)] as Dictionary
+	if bool(fallback.get("available", true)) and String(fallback.get("state", "feeding")) not in ["spooked", "hooked", "landed"]:
+		return fallback
+	return {}
 
 
 func _spawn_surface_rise_at(center: Vector3, max_radius: float) -> void:
@@ -864,9 +907,70 @@ func _on_cast_commit_requested(style: String) -> void:
 	_show_cast_message("Select a water target first, then press O for overhead or R for roll cast.", 2.4)
 
 
-func _on_cast_requested(origin: Vector3, direction: Vector3) -> void:
-	_on_cast_target_requested(origin, direction)
-	perform_selected_cast("overhead")
+func _on_drag_refusal(fly_position: Vector3) -> void:
+	_drag_refusal_fired = true
+	for i in range(builder.fish_hold_entries.size()):
+		var fish := builder.fish_hold_entries[i] as Dictionary
+		if not bool(fish.get("available", true)):
+			continue
+		if String(fish.get("state", "feeding")) == "spooked":
+			continue
+		if (fish["position"] as Vector3).distance_squared_to(fly_position) > FISH_TAKE_RADIUS * FISH_TAKE_RADIUS * 4.0:
+			continue
+		fish["alert"] = maxf(float(fish.get("alert", 0.0)), 0.72)
+		fish["state"] = "alert"
+		builder.fish_hold_entries[i] = fish
+	_cast_state = "DRAG — FISH ALERTED"
+	_post_cast_state = "READY TO CAST"
+	_cast_state_timer = 2.0
+	_finish_dry_fly_drift("Fly dragged. Fish alerted — give the run a minute before casting again.")
+
+
+func _start_fish_fight(fish: Dictionary, fly_name: String) -> void:
+	_fighting = true
+	_fight_timer = 0.0
+	_fight_tension = 0.5
+	_fighting_fish = fish
+	_fighting_fly_name = fly_name
+	var species := int(fish.get("species", 0))
+	_fight_duration = 4.0 if species == 0 else (5.0 if species == 1 else 2.5)
+	_cast_state = "FIGHTING — HOLD ON"
+	_post_cast_state = "FIGHTING — HOLD ON"
+
+
+func _update_fish_fight(delta: float) -> void:
+	if not _fighting:
+		return
+	_fight_timer += delta
+	_fight_tension = 0.5 + 0.45 * sin(_fight_timer * 3.5)
+	_cast_state = "FIGHTING — TENSION: %d%%" % int(_fight_tension * 100.0)
+	if _fight_tension < 0.05:
+		_fighting = false
+		_cast_state = "FISH OFF — SLACK LINE"
+		_post_cast_state = "READY TO CAST"
+		_cast_state_timer = 2.5
+		_show_cast_message("Fish threw the hook on slack line.", 3.0)
+		return
+	if _fight_timer >= _fight_duration:
+		_fighting = false
+		_land_hooked_fish(_fighting_fish, _fighting_fly_name)
+
+
+func _tween_visible_fish_to(fish: Dictionary, fly_position: Vector3) -> void:
+	var hold_pos: Vector3 = fish.get("position", Vector3.ZERO)
+	var best_node: Node3D = null
+	var best_dist_sq := INF
+	for node in get_tree().get_nodes_in_group("visible_fish"):
+		if not node is Node3D:
+			continue
+		var dist_sq := (node as Node3D).global_position.distance_squared_to(hold_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_node = node as Node3D
+	if best_node == null or best_dist_sq > 4.0:
+		return
+	var tween := create_tween()
+	tween.tween_property(best_node, "position", fly_position, 0.3)
 
 
 func select_cast_target(origin: Vector3, target: Vector3) -> bool:
@@ -1056,30 +1160,39 @@ func _cast_zoom_label() -> String:
 
 
 func _render_cast_target(origin: Vector3, target: Vector3) -> void:
-	_clear_cast_target_marker()
-	_rebuild_cast_line(_current_rod_tip(), target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
-	var ring := TorusMesh.new()
-	ring.inner_radius = 0.18
-	ring.outer_radius = 0.24
-	ring.rings = 6
-	ring.ring_segments = 28
-	_cast_target_marker = MeshInstance3D.new()
-	_cast_target_marker.name = "CastTargetMarker"
-	_cast_target_marker.mesh = ring
-	_cast_target_marker.material_override = _target_marker_material()
+	_rebuild_cast_line(origin, target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
+	_ensure_cast_target_marker()
 	_cast_target_marker.position = target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET + 0.018, 0.0)
 	_cast_target_marker.rotation.x = PI * 0.5
+	_cast_target_marker.visible = true
+
+
+func _ensure_cast_target_marker() -> void:
+	if _cast_target_marker != null and is_instance_valid(_cast_target_marker):
+		return
+	if _cast_target_marker_mesh == null:
+		_cast_target_marker_mesh = TorusMesh.new()
+		_cast_target_marker_mesh.inner_radius = 0.18
+		_cast_target_marker_mesh.outer_radius = 0.24
+		_cast_target_marker_mesh.rings = 6
+		_cast_target_marker_mesh.ring_segments = 28
+	_cast_target_marker = MeshInstance3D.new()
+	_cast_target_marker.name = "CastTargetMarker"
+	_cast_target_marker.mesh = _cast_target_marker_mesh
+	_cast_target_marker.material_override = _target_marker_material()
 	add_child(_cast_target_marker)
 
 
 func _target_marker_material() -> Material:
-	var material := StandardMaterial3D.new()
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(0.30, 0.86, 1.0, 0.62)
-	material.emission_enabled = true
-	material.emission = Color(0.18, 0.62, 1.0, 1.0)
-	material.emission_energy_multiplier = 0.45
-	return material
+	if _cast_target_marker_material != null:
+		return _cast_target_marker_material
+	_cast_target_marker_material = StandardMaterial3D.new()
+	_cast_target_marker_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_cast_target_marker_material.albedo_color = Color(0.30, 0.86, 1.0, 0.62)
+	_cast_target_marker_material.emission_enabled = true
+	_cast_target_marker_material.emission = Color(0.18, 0.62, 1.0, 1.0)
+	_cast_target_marker_material.emission_energy_multiplier = 0.45
+	return _cast_target_marker_material
 
 
 func _render_cast(origin: Vector3, target: Vector3) -> void:
@@ -1096,9 +1209,17 @@ func _render_cast(origin: Vector3, target: Vector3) -> void:
 
 func _start_dry_fly_drift(origin: Vector3, target: Vector3, landing: Dictionary, selected: Dictionary, cast_style: String = "overhead") -> void:
 	var flow: Vector3 = landing["current_vector"]
+	var is_surface := bool(selected.get("surface", true))
+	var depth_layer := String(selected.get("depth_layer", "surface"))
+	var fly_y_offset: float
+	if not is_surface:
+		fly_y_offset = -0.40 if depth_layer == "bottom" else -0.25
+	else:
+		fly_y_offset = DRY_FLY_SURFACE_OFFSET
+	_drag_refusal_fired = false
 	_active_drift = {
 		"origin": origin,
-		"position": target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0),
+		"position": target + Vector3(0.0, fly_y_offset, 0.0),
 		"age": 0.0,
 		"duration": DRY_FLY_DRIFT_DURATION,
 		"drag": 0.0,
@@ -1107,6 +1228,8 @@ func _start_dry_fly_drift(origin: Vector3, target: Vector3, landing: Dictionary,
 		"cast_style": cast_style,
 		"habitat": String(landing["habitat"]),
 		"current_strength": float(landing["current_strength"]),
+		"surface": is_surface,
+		"fly_y_offset": fly_y_offset,
 	}
 	_update_drift_readout(landing)
 
@@ -1132,9 +1255,13 @@ func _update_dry_fly_drift(delta: float) -> void:
 	var flow: Vector3 = sample["current_vector"]
 	var previous_flow: Vector3 = _active_drift["previous_flow"]
 	var drag := minf(float(_active_drift["drag"]) + _drift_drag_delta(previous_flow, flow, delta), DRY_FLY_MAX_DRAG)
+	if drag >= 0.72 and not _drag_refusal_fired:
+		_on_drag_refusal(position)
+		return
 	var next_position := position + flow * DRY_FLY_FLOW_SCALE * delta
 	next_position = _clamp_to_world_bounds(next_position)
-	next_position.y = LowerMadisonReachScript.WATER_HEIGHT + DRY_FLY_SURFACE_OFFSET
+	var fly_y_offset: float = float(_active_drift.get("fly_y_offset", DRY_FLY_SURFACE_OFFSET))
+	next_position.y = LowerMadisonReachScript.WATER_HEIGHT + fly_y_offset
 	var next_sample := reach.sample(next_position)
 	if not bool(next_sample["is_water"]):
 		_finish_dry_fly_drift("Fly drifted out of the current and onto dry ground.")
@@ -1163,10 +1290,10 @@ func _evaluate_fish_take(fly_position: Vector3, sample: Dictionary) -> void:
 		if String(fish.get("state", "feeding")) == "spooked":
 			continue
 		var fish_position: Vector3 = fish["position"]
-		var distance := fly_position.distance_to(fish_position)
 		var lane_radius := maxf(float(fish.get("feeding_lane_radius", FISH_TAKE_RADIUS)), FISH_TAKE_RADIUS)
-		if distance > lane_radius:
+		if fly_position.distance_squared_to(fish_position) > lane_radius * lane_radius:
 			continue
+		var distance := fly_position.distance_to(fish_position)
 		if not _fish_will_take(fish, sample, distance):
 			continue
 		fish["available"] = false
@@ -1184,7 +1311,8 @@ func _fish_will_take(fish: Dictionary, sample: Dictionary, distance: float) -> b
 	var affinity_score := _fish_fly_affinity_score(fish)
 	var alert_penalty := float(fish.get("alert", 0.0)) * 0.36
 	var species_bias := 0.08 if int(fish["species"]) == 2 else 0.18
-	return distance_score * 0.36 + current_score * 0.18 + hatch_score * 0.24 + affinity_score * 0.20 + species_bias - drag_penalty - alert_penalty >= 0.52
+	var feeding_bonus := 0.15 if TimeOfDay.is_feeding_window() else 0.0
+	return distance_score * 0.36 + current_score * 0.18 + hatch_score * 0.24 + affinity_score * 0.20 + species_bias + feeding_bonus - drag_penalty - alert_penalty >= 0.52
 
 
 func _selected_fly_hatch_score() -> float:
@@ -1228,9 +1356,11 @@ func _start_fish_take(fish: Dictionary, fly_position: Vector3) -> void:
 	_cast_state = "FISH UP • SET HOOK"
 	_post_cast_state = "FISH UP • SET HOOK"
 	_drift_readout = "%s ate it — click/Space now! %.1fs window" % [String(fish["name"]), float(_pending_take["window"])]
-	_spawn_surface_rise_at(fly_position, 0.82)
+	if bool(_active_drift.get("surface", true)):
+		_spawn_surface_rise_at(fly_position, 0.82)
 	_play_sound_cue("fish_take")
 	_show_cast_message("Take! %s rose to the %s." % [String(fish["name"]), String(_active_drift["fly_name"])], 2.0)
+	_tween_visible_fish_to(fish, fly_position)
 
 
 func _update_pending_take(delta: float) -> void:
@@ -1312,34 +1442,43 @@ func _finish_dry_fly_drift(message: String) -> void:
 	_show_cast_message(message, 2.5)
 
 
+func _update_visible_fish_animation() -> void:
+	var elapsed := Time.get_ticks_msec() * 0.0022
+	for node in get_tree().get_nodes_in_group("visible_fish"):
+		if node is Node3D and node.has_method("animate_swim"):
+			node.call("animate_swim", elapsed)
+
+
 func _update_fish_ai(delta: float) -> void:
 	if builder == null or builder.fish_hold_entries.is_empty():
 		return
 	var player_pos := angler.global_position
 	var player_wading := is_wading(player_pos)
+	var selected_hatch_score := _selected_fly_hatch_score()
 	for i in range(builder.fish_hold_entries.size()):
 		var fish := builder.fish_hold_entries[i] as Dictionary
 		if not bool(fish.get("available", true)):
 			builder.fish_hold_entries[i] = fish
 			continue
 		var fish_pos: Vector3 = fish["position"]
-		var distance := fish_pos.distance_to(player_pos)
+		var distance_sq := fish_pos.distance_squared_to(player_pos)
 		var spook_radius := _fish_spook_radius(fish)
 		var alert := float(fish.get("alert", 0.0))
 		if player_wading:
 			var vibration_radius := spook_radius
 			if GameManager.difficulty != null:
 				vibration_radius = maxf(vibration_radius, float(GameManager.difficulty.wading_vibration_radius))
-			if distance < vibration_radius:
+			if distance_sq < vibration_radius * vibration_radius:
+				var distance := sqrt(distance_sq)
 				alert = maxf(alert, 1.0 - distance / maxf(vibration_radius, 0.1))
-		if distance < spook_radius * 0.55:
+		if distance_sq < spook_radius * 0.55 * spook_radius * 0.55:
 			alert = 1.0
 		var state := String(fish.get("state", "feeding"))
 		if alert >= 0.88:
 			state = "spooked"
 		elif alert >= FISH_FEEDING_ALERT_LIMIT:
 			state = "alert"
-		elif _selected_fly_hatch_score() >= 0.44:
+		elif selected_hatch_score >= 0.44:
 			state = "feeding"
 		else:
 			state = "holding"
@@ -1367,9 +1506,10 @@ func _apply_cast_disturbance(target: Vector3, quality: String) -> void:
 		var fish := builder.fish_hold_entries[i] as Dictionary
 		if not bool(fish.get("available", true)):
 			continue
-		var distance := (fish["position"] as Vector3).distance_to(target)
-		if distance > splash_radius:
+		var distance_sq := (fish["position"] as Vector3).distance_squared_to(target)
+		if distance_sq > splash_radius * splash_radius:
 			continue
+		var distance := sqrt(distance_sq)
 		fish["alert"] = maxf(float(fish.get("alert", 0.0)), 1.0 - distance / maxf(splash_radius, 0.1))
 		if float(fish["alert"]) >= 0.82:
 			fish["state"] = "spooked"
@@ -1402,9 +1542,10 @@ func _rebuild_cast_line(origin: Vector3, target: Vector3) -> void:
 		return
 
 	var fly_position := target
+	var fly_sample := reach.sample(fly_position)
 	var leader_start_t := _leader_start_fraction_for_line(origin, fly_position)
-	var line_mesh := _build_line_strip_mesh(origin, fly_position, 0.0, leader_start_t, leader_start_t, MAT_FLY_LINE)
-	var leader_mesh := _build_line_strip_mesh(origin, fly_position, leader_start_t, 1.0, leader_start_t, MAT_LEADER)
+	var line_mesh := _build_line_strip_mesh(origin, fly_position, fly_sample, 0.0, leader_start_t, leader_start_t, MAT_FLY_LINE)
+	var leader_mesh := _build_line_strip_mesh(origin, fly_position, fly_sample, leader_start_t, 1.0, leader_start_t, MAT_LEADER)
 
 	if _cast_line == null or not is_instance_valid(_cast_line):
 		_cast_line = MeshInstance3D.new()
@@ -1454,11 +1595,6 @@ func _current_rod_tip() -> Vector3:
 	return _active_drift.get("origin", Vector3.ZERO)
 
 
-func _leader_start_for_line(origin: Vector3, fly_position: Vector3) -> Vector3:
-	var leader_start_t := _leader_start_fraction_for_line(origin, fly_position)
-	return _cast_curve_point(origin, fly_position, leader_start_t, leader_start_t)
-
-
 func _leader_start_fraction_for_line(origin: Vector3, fly_position: Vector3) -> float:
 	var distance := origin.distance_to(fly_position)
 	if distance <= 0.001:
@@ -1467,30 +1603,29 @@ func _leader_start_fraction_for_line(origin: Vector3, fly_position: Vector3) -> 
 	return clampf(1.0 - (leader_length / distance), 0.0, 1.0)
 
 
-func _build_line_strip_mesh(origin: Vector3, fly_position: Vector3, start_t: float, end_t: float, leader_start_t: float, material: Material) -> ImmediateMesh:
+func _build_line_strip_mesh(origin: Vector3, fly_position: Vector3, fly_sample: Dictionary, start_t: float, end_t: float, leader_start_t: float, material: Material) -> ImmediateMesh:
 	var mesh := ImmediateMesh.new()
 	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, material)
 	for i in range(CAST_LINE_SEGMENTS + 1):
 		var local_t := float(i) / float(CAST_LINE_SEGMENTS)
 		var t := lerpf(start_t, end_t, local_t)
-		mesh.surface_add_vertex(_cast_curve_point(origin, fly_position, t, leader_start_t))
+		mesh.surface_add_vertex(_cast_curve_point(origin, fly_position, fly_sample, t, leader_start_t))
 	mesh.surface_end()
 	return mesh
 
 
-func _cast_curve_point(origin: Vector3, fly_position: Vector3, t: float, leader_start_t: float) -> Vector3:
+func _cast_curve_point(origin: Vector3, fly_position: Vector3, fly_sample: Dictionary, t: float, leader_start_t: float) -> Vector3:
 	var point := origin.lerp(fly_position, t)
 	var blend_start := maxf(0.0, leader_start_t - CAST_LEADER_TRANSITION_BLEND)
 	var blend_end := minf(1.0, leader_start_t + CAST_LEADER_TRANSITION_BLEND)
 	var leader_weight := smoothstep(blend_start, blend_end, t)
 	var sag_scale := lerpf(1.0, 0.28, leader_weight)
 	point.y -= sin(t * PI) * CAST_LINE_SAG * sag_scale
-	var sample := reach.sample(fly_position)
-	if bool(sample.get("is_water", false)):
-		var flow: Vector3 = sample.get("current_vector", Vector3.ZERO)
+	if bool(fly_sample.get("is_water", false)):
+		var flow: Vector3 = fly_sample.get("current_vector", Vector3.ZERO)
 		if flow.length_squared() > 0.0001:
 			var bow_scale := lerpf(1.0, 0.65, leader_weight)
-			var bow := sin(t * PI) * float(sample.get("current_strength", 0.0)) * CAST_LINE_CURRENT_BOW * bow_scale
+			var bow := sin(t * PI) * float(fly_sample.get("current_strength", 0.0)) * CAST_LINE_CURRENT_BOW * bow_scale
 			point += flow.normalized() * bow
 	return point
 
@@ -1511,10 +1646,7 @@ func _clear_cast_visuals() -> void:
 
 func _clear_cast_target_marker() -> void:
 	if _cast_target_marker != null and is_instance_valid(_cast_target_marker):
-		if _cast_target_marker.get_parent() != null:
-			_cast_target_marker.get_parent().remove_child(_cast_target_marker)
-		_cast_target_marker.queue_free()
-	_cast_target_marker = null
+		_cast_target_marker.visible = false
 
 
 func _cast_quality(distance: float) -> String:
@@ -1564,7 +1696,8 @@ func _update_hud() -> void:
 	]
 	cast_label.text = _cast_message
 	var selected := FLY_OPTIONS[_selected_fly_index] as Dictionary
-	fly_label.text = "%s\n%s · %s dry" % [selected["name"], selected["species"], selected["phase"]]
+	var fly_type := "dry" if bool(selected.get("surface", true)) else "[SUBSURFACE] %s" % String(selected.get("depth_layer", "mid"))
+	fly_label.text = "%s\n%s · %s · %s" % [selected["name"], selected["species"], selected["phase"], fly_type]
 	cast_state_label.text = _cast_state if _drift_readout.is_empty() else "%s\n%s" % [_cast_state, _drift_readout]
 	hatch_label.text = _surface_life_label()
 	_update_casting_loop_hud()
@@ -1661,19 +1794,12 @@ func _play_sound_cue(cue_name: String) -> void:
 	_last_sound_cue = cue_name
 	if OS.is_debug_build():
 		print("RiverWorld3D sound cue: %s" % cue_name)
-
-
-func _sky_color() -> Color:
-	var hour := TimeOfDay.current_hour
-	if hour < 7.0:
-		return Color(0.58, 0.70, 0.84)
-	if hour > 19.0:
-		return Color(0.30, 0.38, 0.50)
-	return Color(0.48, 0.66, 0.86)
-
-
-func _sun_color() -> Color:
-	var hour := TimeOfDay.current_hour
-	if hour < 7.0 or hour > 18.0:
-		return Color(1.0, 0.86, 0.68)
-	return Color(1.0, 0.96, 0.86)
+	if _audio_player == null or not is_instance_valid(_audio_player):
+		return
+	if not audio_cue_streams.has(cue_name):
+		return
+	var stream := audio_cue_streams[cue_name] as AudioStream
+	if stream == null:
+		return
+	_audio_player.stream = stream
+	_audio_player.play()

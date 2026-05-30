@@ -2,7 +2,6 @@ extends Node
 
 enum Period { DAWN, MORNING, MIDDAY, AFTERNOON, DUSK, NIGHT }
 
-signal dawn
 signal period_changed(new_period: Period)
 
 # Real seconds per in-game hour. Default: 60s = 1 hr (full day in ~24 min).
@@ -12,9 +11,10 @@ var seconds_per_hour: float = 60.0
 var current_hour: float = 6.0   # 0.0–24.0
 var current_period: Period = Period.DAWN
 var light_level: float = 0.0    # 0.0 (night) → 1.0 (midday)
-var sun_angle: float = 0.0      # degrees: 0 = east/dawn, 180 = west/dusk
 
 var _previous_period: Period = Period.DAWN
+var _recalc_accum: float = 0.0
+const RECALC_INTERVAL: float = 0.25
 
 
 func _ready() -> void:
@@ -29,12 +29,14 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	current_hour = fmod(current_hour + delta / seconds_per_hour, 24.0)
-	_recalculate()
+	_recalc_accum += delta
+	if _recalc_accum >= RECALC_INTERVAL:
+		_recalculate()
+		_recalc_accum = 0.0
 
 
 func _recalculate() -> void:
 	_update_light_level()
-	_update_sun_angle()
 	_check_period()
 
 
@@ -47,7 +49,7 @@ func _check_period() -> void:
 	current_period = new_period
 	period_changed.emit(current_period)
 	if current_period == Period.DAWN and was_night:
-		dawn.emit()
+		pass
 
 
 func _hour_to_period(hour: float) -> Period:
@@ -66,11 +68,6 @@ func _update_light_level() -> void:
 		light_level = sin(t * PI)
 	else:
 		light_level = 0.0
-
-
-func _update_sun_angle() -> void:
-	# 0° at dawn (east/right), 180° at dusk (west/left)
-	sun_angle = clampf((current_hour - 6.0) / 12.0, 0.0, 1.0) * 180.0
 
 
 # --- Public API ---

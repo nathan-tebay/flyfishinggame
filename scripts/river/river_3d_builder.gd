@@ -33,6 +33,11 @@ const BAR_SHOULDER_LIFT := 0.016
 const BAR_EDGE_LIFT := 0.002
 const BAR_APRON_LIFT := -0.008
 const FISH_SPECIES := [0, 1, 2]
+const MIN_FISH_PER_RUN := 5
+const MAX_FISH_PER_HOLD := 2
+const MAX_VISIBLE_FISH := 10
+const LARGE_FISH_LENGTH := 0.54
+const SHALLOW_LARGE_FISH_DEPTH := 0.50
 
 var reach: LowerMadisonReachScript = null
 var session_seed := 0
@@ -376,50 +381,166 @@ func _build_fish_hold_entries() -> void:
 	if holds.is_empty():
 		return
 	var first := posmod(session_seed, holds.size())
-	for step in range(0, mini(holds.size(), 8), 2):
+	var strong_hatch := _has_strong_surface_hatch()
+	var entry_index := 0
+	for step in range(holds.size()):
 		var hold := holds[(first + step) % holds.size()] as Dictionary
 		var fraction := float(hold["fraction"])
 		var lateral := float(hold["lateral"])
 		var depth := _water_depth_at(fraction, lateral)
-		if depth < 0.24:
+		if depth < 0.20:
 			continue
-		var species: int = FISH_SPECIES[(first + step) % FISH_SPECIES.size()]
-		var length := 0.52 + float((first + step) % 4) * 0.09
-		var wariness := clampf(0.42 + length * 0.28 + depth * 0.18, 0.35, 0.82)
-		fish_hold_entries.append({
-			"fraction": fraction,
-			"lateral": lateral,
-			"depth": depth,
-			"species": species,
-			"length": length,
-			"name": ["Rainbow Trout", "Brown Trout", "Mountain Whitefish"][species],
-			"position": _position_at(fraction, lateral, LowerMadisonReachScript.WATER_HEIGHT),
-			"available": true,
-			"state": "feeding",
-			"alert": 0.0,
-			"wariness": wariness,
-			"spook_radius": 4.8 + wariness * 3.2,
-			"feeding_lane_radius": 1.65 + clampf(depth, 0.0, 1.0) * 1.4,
-		})
+		var hold_count := _fish_count_for_hold(fraction, lateral, depth, step)
+		for slot in range(hold_count):
+			var local_fraction := clampf(fraction + _fish_fraction_offset(step, slot), 0.035, 0.965)
+			var local_lateral := lateral + _fish_lateral_offset(step, slot)
+			var half_width := _half_width_at(local_fraction)
+			local_lateral = clampf(local_lateral, -half_width + 1.25, half_width - 1.25)
+			var local_depth := _water_depth_at(local_fraction, local_lateral)
+			if local_depth < 0.20:
+				continue
+			_append_fish_hold_entry(local_fraction, local_lateral, local_depth, first + step, slot, entry_index, strong_hatch)
+			entry_index += 1
+	if fish_hold_entries.size() < MIN_FISH_PER_RUN:
+		_backfill_minimum_fish(holds, first, strong_hatch, entry_index)
+
+
+func _append_fish_hold_entry(fraction: float, lateral: float, depth: float, seed_step: int, slot: int, entry_index: int, strong_hatch: bool) -> void:
+	var species: int = FISH_SPECIES[posmod(seed_step + slot + entry_index, FISH_SPECIES.size())]
+	var length := _fish_length_for_hold(depth, reach.habitat_at(fraction, lateral), seed_step, slot, entry_index, strong_hatch)
+	var wariness := clampf(0.36 + length * 0.38 + depth * 0.16, 0.32, 0.84)
+	var state := "feeding" if strong_hatch or depth >= 0.46 else "holding"
+	fish_hold_entries.append({
+		"fraction": fraction,
+		"lateral": lateral,
+		"depth": depth,
+		"species": species,
+		"length": length,
+		"visual_length": _fish_visual_length(length, depth),
+		"name": ["Rainbow Trout", "Brown Trout", "Mountain Whitefish"][species],
+		"position": _position_at(fraction, lateral, _fish_visual_height(depth)),
+		"surface_position": _position_at(fraction, lateral, LowerMadisonReachScript.WATER_HEIGHT + 0.027),
+		"available": true,
+		"state": state,
+		"alert": 0.0,
+		"wariness": wariness,
+		"spook_radius": 4.2 + wariness * 3.0,
+		"feeding_lane_radius": 1.85 + clampf(depth, 0.0, 1.0) * 1.65,
+		"surface_rise_weight": _fish_surface_rise_weight(length, depth, strong_hatch),
+	})
+
+
+func _backfill_minimum_fish(holds: Array, first: int, strong_hatch: bool, start_index: int) -> void:
+	var entry_index := start_index
+	for step in range(holds.size()):
+		if fish_hold_entries.size() >= MIN_FISH_PER_RUN:
+			return
+		var hold := holds[(first + step) % holds.size()] as Dictionary
+		var fraction := float(hold["fraction"])
+		var lateral := float(hold["lateral"])
+		var depth := _water_depth_at(fraction, lateral)
+		if depth < 0.16:
+			continue
+		_append_fish_hold_entry(fraction, lateral, maxf(depth, 0.20), first + step, 0, entry_index, strong_hatch)
+		entry_index += 1
+
+
+func _fish_count_for_hold(fraction: float, lateral: float, depth: float, step: int) -> int:
+	var habitat := reach.habitat_at(fraction, lateral)
+	var count := 1
+	if depth >= 0.44:
+		count += 1
+	if depth >= 0.72 or habitat in ["deep pool", "deep seam pool", "weed edge", "boulder pocket"]:
+		count += 1
+	if posmod(session_seed + step * 17, 7) == 0 and depth >= 0.38:
+		count += 1
+	return clampi(count, 1, MAX_FISH_PER_HOLD)
+
+
+func _fish_fraction_offset(step: int, slot: int) -> float:
+	if slot == 0:
+		return 0.0
+	var sign := -1.0 if posmod(session_seed + step + slot, 2) == 0 else 1.0
+	return sign * (0.004 + float(slot) * 0.003)
+
+
+func _fish_lateral_offset(step: int, slot: int) -> float:
+	if slot == 0:
+		return 0.0
+	var sign := -1.0 if posmod(session_seed + step * 3 + slot, 2) == 0 else 1.0
+	return sign * (0.65 + float(slot - 1) * 0.55)
+
+
+func _fish_length_for_hold(depth: float, habitat: String, seed_step: int, slot: int, entry_index: int, strong_hatch: bool) -> float:
+	var roll := float(posmod(session_seed + seed_step * 37 + slot * 19 + entry_index * 11, 100)) / 100.0
+	var length := 0.26 + roll * 0.20
+	if depth >= 0.72 or habitat in ["deep pool", "deep seam pool"]:
+		length = 0.34 + roll * 0.34
+	elif depth >= 0.46:
+		length = 0.30 + roll * 0.26
+	elif strong_hatch and roll > 0.70:
+		length = 0.52 + (roll - 0.70) * 0.44
+	if not strong_hatch and depth < SHALLOW_LARGE_FISH_DEPTH:
+		length = minf(length, LARGE_FISH_LENGTH - 0.03)
+	return clampf(length, 0.22, 0.72)
+
+
+func _fish_visual_length(length: float, depth: float) -> float:
+	var deep_blend := smoothstep(0.36, 0.95, depth)
+	return maxf(0.20, length * lerpf(0.86, 0.58, deep_blend))
+
+
+func _fish_visual_height(depth: float) -> float:
+	var offset := 0.10
+	if depth <= 0.38:
+		offset = clampf(depth * 0.38, 0.08, 0.14)
+	elif depth <= 0.62:
+		offset = depth * 0.62
+	else:
+		offset = depth * 0.78
+	offset = minf(offset, maxf(depth - 0.08, 0.08))
+	return LowerMadisonReachScript.WATER_HEIGHT - offset
+
+
+func _fish_surface_rise_weight(length: float, depth: float, strong_hatch: bool) -> float:
+	var depth_cue := clampf(depth / 0.85, 0.0, 1.0)
+	var size_cue := clampf((length - 0.28) / 0.36, 0.0, 1.0)
+	var hatch_bonus := 0.35 if strong_hatch else 0.0
+	return clampf(0.35 + depth_cue * 0.30 + size_cue * 0.22 + hatch_bonus, 0.25, 1.0)
+
+
+func _has_strong_surface_hatch() -> bool:
+	if not is_inside_tree():
+		return false
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return false
+	var hatch_manager := tree.root.get_node_or_null("HatchManager")
+	if hatch_manager == null or not hatch_manager.has_method("hatch_state_name"):
+		return false
+	var hatch_name := String(hatch_manager.call("hatch_state_name"))
+	return hatch_name == "PEAK_HATCH" or hatch_name == "SPINNER_FALL"
 
 
 func _build_seeded_fish() -> void:
+	var visible_count := 0
 	for i in fish_hold_entries.size():
+		if visible_count >= MAX_VISIBLE_FISH:
+			break
 		if not _density_allows(i, fish_visual_density):
 			continue
 		var fish_entry := fish_hold_entries[i] as Dictionary
 		var species := int(fish_entry["species"])
 		var fraction := float(fish_entry["fraction"])
-		var lateral := float(fish_entry["lateral"])
-		var depth := float(fish_entry["depth"])
 		var fish := FishModelScript.new()
-		fish.configure(species, float(fish_entry["length"]), fraction * 21.0)
-		fish.name = "Holding%s" % ["RainbowTrout", "BrownTrout", "MountainWhitefish"][species]
-		fish.position = _position_at(fraction, lateral,
-				LowerMadisonReachScript.WATER_HEIGHT - clampf(depth * 0.42, 0.11, 0.30))
+		fish.configure(species, float(fish_entry.get("visual_length", fish_entry["length"])), fraction * 21.0 + float(i) * 0.37)
+		fish.name = "Holding%s%02d" % [["RainbowTrout", "BrownTrout", "MountainWhitefish"][species], i]
+		fish.position = fish_entry["position"] as Vector3
 		var tangent: Vector2 = reach.frame_at_fraction(fraction)["tangent"]
 		fish.rotation.y = atan2(tangent.x, tangent.y)
+		fish.add_to_group("visible_fish")
 		add_child(fish)
+		visible_count += 1
 
 
 func _build_adult_surface_insects() -> void:
@@ -683,25 +804,6 @@ func _add_ring_segment_colors(tool: SurfaceTool, inner_a: Vector3, inner_b: Vect
 	_add_triangle_colors(tool, inner_a, outer_b, inner_b,
 			inner_color, outer_b_color, inner_color)
 
-
-func _add_blade(tool: SurfaceTool, base: Vector3, height: float, half_width: float) -> void:
-	var tip := base + Vector3(0.15, height, 0.0)
-	var base_left := base - Vector3(0.0, 0.0, half_width)
-	var tip_right := tip + Vector3(0.0, 0.0, half_width * 0.38)
-	var base_right := base + Vector3(0.0, 0.0, half_width)
-	var tip_left := tip - Vector3(0.0, 0.0, half_width * 0.38)
-	_add_blade_vertex(tool, base_left, Vector2(0.0, 0.0))
-	_add_blade_vertex(tool, tip_right, Vector2(1.0, 1.0))
-	_add_blade_vertex(tool, base_right, Vector2(1.0, 0.0))
-	_add_blade_vertex(tool, base_left, Vector2(0.0, 0.0))
-	_add_blade_vertex(tool, tip_left, Vector2(0.0, 1.0))
-	_add_blade_vertex(tool, tip_right, Vector2(1.0, 1.0))
-
-
-func _add_blade_vertex(tool: SurfaceTool, point: Vector3, uv: Vector2) -> void:
-	tool.set_color(Color.WHITE)
-	tool.set_uv(uv)
-	tool.add_vertex(point)
 
 
 func _add_multimesh(node_name: String, mesh: Mesh, transforms: Array[Transform3D], material: Material) -> void:
