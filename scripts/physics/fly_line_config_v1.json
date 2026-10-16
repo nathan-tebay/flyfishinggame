@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "line_length_m": 18.0,
+  "line_segments": 36,
+  "leader_length_m": 2.45,
+  "leader_segments": 7,
+  "line_taper": [
+    {
+      "at": 0.0,
+      "kg_per_m": 0.0018,
+      "diameter_m": 0.0009
+    },
+    {
+      "at": 0.18,
+      "kg_per_m": 0.0032,
+      "diameter_m": 0.0012
+    },
+    {
+      "at": 0.48,
+      "kg_per_m": 0.0027,
+      "diameter_m": 0.001
+    },
+    {
+      "at": 0.78,
+      "kg_per_m": 0.0014,
+      "diameter_m": 0.0007
+    },
+    {
+      "at": 1.0,
+      "kg_per_m": 0.0007,
+      "diameter_m": 0.00045
+    }
+  ],
+  "leader_kg_per_m": 0.00012,
+  "fly_mass_kg": 8e-05,
+  "solver_hz": 120,
+  "solver_iterations": 14,
+  "stretch_compliance": 2e-08,
+  "drag_parallel": 0.0001,
+  "drag_perpendicular": 0.001,
+  "gravity_m_per_s2": 9.81,
+  "leader_drag_parallel": 3e-05,
+  "leader_drag_perpendicular": 0.0003,
+  "line_total_mass_kg": 0.039274512
+}
