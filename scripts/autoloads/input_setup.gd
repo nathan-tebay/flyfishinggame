@@ -18,14 +18,23 @@ func _setup_actions() -> void:
 
 	# Cast
 	_key_and_button("select_cast_target", KEY_SPACE, JOY_BUTTON_A)
-	_key_and_button("back_cast", KEY_B, JOY_BUTTON_LEFT_STICK)
-	_key_and_button("forward_cast", KEY_F, JOY_BUTTON_RIGHT_STICK)
 	_key_and_button("overhead_cast", KEY_O, JOY_BUTTON_RIGHT_SHOULDER)
 	_key_and_button("roll_cast", KEY_R, JOY_BUTTON_LEFT_SHOULDER)
 	_key_and_button("complete_cast", KEY_SPACE, JOY_BUTTON_A)
 	_key("cycle_fly", KEY_Q)
-	_key("cast_zoom_in", KEY_Z)
-	_key("cast_zoom_out", KEY_X)
+	_key("cast_line_longer", KEY_Z)
+	_key("cast_line_shorter", KEY_X)
+
+	# Cast mode line management (context-routed in player script)
+	_mouse_button("line_feed",     MOUSE_BUTTON_LEFT)
+	_mouse_button("line_retrieve", MOUSE_BUTTON_RIGHT)
+	_mouse_button("hookset",       MOUSE_BUTTON_MIDDLE)
+	_key("exit_cast_mode", KEY_TAB)
+	_key_and_button("cast_camera_toggle", KEY_V, JOY_BUTTON_Y)
+
+	# Casting motion capture (dev tuning tool)
+	_key("cast_record_toggle", KEY_F9)
+	_key("cast_replay_toggle", KEY_F10)
 
 	# Mouse capture / pause
 	_key_and_button("pause_game", KEY_ESCAPE, JOY_BUTTON_START)
@@ -68,3 +77,10 @@ func _key_and_button(action: String, keycode: Key, button: JoyButton) -> void:
 func _key_and_axis(action: String, keycode: Key, axis: JoyAxis, value: float) -> void:
 	_key(action, keycode)
 	_axis(action, axis, value)
+
+
+func _mouse_button(action: String, button: MouseButton) -> void:
+	_ensure(action)
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	InputMap.action_add_event(action, ev)

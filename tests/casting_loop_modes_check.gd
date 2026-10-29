@@ -32,9 +32,6 @@ func _initialize() -> void:
 	if not world.has_method("perform_selected_cast"):
 		_fail("world needs perform_selected_cast(style) for overhead/roll casts")
 		return
-	if not world.has_method("practice_cast_loop"):
-		_fail("world needs practice_cast_loop(phase) for forward/backcast loop keybinds")
-		return
 
 	var origin: Vector3 = world.angler.rod.tip_global_position()
 	var target := _water_target(world, origin)
@@ -54,19 +51,9 @@ func _initialize() -> void:
 	if String(world._cast_state).find("TARGET") < 0:
 		_fail("HUD cast state should mention selected target")
 		return
-	if not world.practice_cast_loop("back"):
-		_fail("backcast loop keybind should work after selecting target")
-		return
-	if String(world._cast_state).find("BACKCAST") < 0:
-		_fail("backcast loop state should be visible")
-		return
-	if not world.practice_cast_loop("forward"):
-		_fail("forward cast loop keybind should work after selecting target")
-		return
-	if String(world._cast_state).find("FORWARD") < 0:
-		_fail("forward loop state should be visible")
-		return
 
+	# Gesture casting: the rod stroke is driven by mouse elevation; the world
+	# still exposes perform_selected_cast(style) as the delivery entry point.
 	if not world.perform_selected_cast("overhead"):
 		_fail("overhead cast did not launch from selected target")
 		return
@@ -76,8 +63,9 @@ func _initialize() -> void:
 	if String(world._active_drift.get("cast_style", "")) != "overhead":
 		_fail("active drift did not record overhead cast style")
 		return
-	if world.get_node_or_null("CastTargetMarker") != null:
-		_fail("target marker should clear after cast launch")
+	var cast_marker := world.get_node_or_null("CastTargetMarker")
+	if cast_marker != null and bool(cast_marker.visible):
+		_fail("target marker should hide after cast launch")
 		return
 
 	origin = world.angler.rod.tip_global_position()
@@ -94,6 +82,26 @@ func _initialize() -> void:
 	if String(world._cast_message).to_lower().find("roll") < 0:
 		_fail("cast feedback should name the roll cast")
 		return
+
+	# New: over-shoulder camera state
+	if world.angler == null:
+		_fail("world.angler must exist for casting tests")
+		return
+	if world.angler.has_method("enter_cast_mode"):
+		var origin2: Vector3 = world.angler.rod.tip_global_position()
+		var target2 := _water_target(world, origin2)
+		if target2 != Vector3.INF:
+			world.select_cast_target(origin2, target2)
+			await process_frame
+			if not world.angler.is_in_cast_mode():
+				_fail("selecting a target should enter cast mode")
+				return
+			world._exit_casting_zoom()
+			world.angler.enter_explore_mode()
+			await process_frame
+			if world.angler.is_in_cast_mode():
+				_fail("after entering explore mode, is_in_cast_mode should return false")
+				return
 
 	print("casting_loop_modes_check: PASS (target-first overhead and roll casts launch drift)")
 	quit(0)

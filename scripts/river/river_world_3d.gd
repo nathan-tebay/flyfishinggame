@@ -2,9 +2,15 @@ class_name RiverWorld3D
 extends Node3D
 
 const DifficultyConfig = preload("res://resources/difficulty_config.gd")
+const CastingMinigamePanelScript = preload("res://scripts/ui/casting_minigame_panel.gd")
+const PauseMenuScript = preload("res://scripts/ui/pause_menu.gd")
 const LowerMadisonReachScript = preload("res://scripts/river/lower_madison_reach.gd")
 const River3DBuilderScript = preload("res://scripts/river/river_3d_builder.gd")
 const FirstPersonAnglerScript = preload("res://scripts/player/first_person_angler.gd")
+const LoopPhysicsEngine = preload("res://scripts/casting/loop_physics_engine.gd")
+const CastingLineRenderer = preload("res://scripts/casting/casting_line_renderer.gd")
+const CastingStateManager = preload("res://scripts/casting/casting_state_manager.gd")
+const CAST_TARGET_TEXTURE_PATH := "res://assets/3d/textures/cast_target_trout.png"
 const AdultInsectScript = preload("res://scripts/models/adult_insect_3d.gd")
 const MAT_FLY_LINE = preload("res://assets/3d/materials/fly_line.tres")
 const MAT_LEADER = preload("res://assets/3d/materials/leader.tres")
@@ -30,11 +36,34 @@ const DRY_FLY_FLOW_SCALE := 1.85
 const DRY_FLY_SURFACE_OFFSET := 0.065
 const DRY_FLY_MAX_DRAG := 1.0
 const LEADER_LENGTH := 2.45
-const CAST_LINE_SEGMENTS := 7
+const CAST_LINE_SEGMENTS := 18
+const CAST_LINE_RIBBON_HALF_WIDTH := 0.018
+const LEADER_RIBBON_HALF_WIDTH := 0.006
+const AERIAL_LINE_SEGMENTS := 24
+const AERIAL_LOOP_HEIGHT := 2.4
+const AERIAL_LOOP_DEPTH := 1.8
+const AERIAL_LOOP_LAG := 0.22
 const CAST_LINE_CURRENT_BOW := 0.34
 const CAST_LINE_SAG := 0.55
 const CAST_LEADER_TRANSITION_BLEND := 0.12
 const CAST_LINE_REBUILD_DISTANCE_SQUARED := 0.0025
+const CAST_LINE_LENGTH_MIN := 3.0
+const CAST_LINE_LENGTH_MAX := 38.0
+const CAST_LINE_LENGTH_STEP := 1.5
+const DEFAULT_LINE_LENGTH   := 3.0
+# Form drag: loop quality scales delivery distance (wide loops fall short)
+const LOOP_DRAG_FACTOR := {
+	"tight": 1.0,
+	"adequate": 0.94,
+	"wide": 0.76,
+	"tailing": 0.60,
+	"none": 0.85,
+}
+# Line tension vs slack: line the load can cleanly turn over
+const CARRY_LIMIT_MIN := 6.0
+const CARRY_LIMIT_MAX := 32.0
+# Loop turnover visual duration
+const TURNOVER_DURATION := 0.45
 const FISH_TAKE_RADIUS := 2.45
 const FISH_TAKE_MIN_AGE := 0.35
 const FISH_TAKE_WINDOW_FALLBACK := 1.15
@@ -42,8 +71,22 @@ const FISH_ALERT_RECOVERY_RATE := 0.18
 const FISH_SPOOK_RECOVERY_RATE := 0.07
 const FISH_FEEDING_ALERT_LIMIT := 0.38
 const NET_SAMPLE_COOLDOWN := 2.0
-const CAST_TARGET_NUDGE_SPEED := 6.8
-const CAST_ZOOM_FOVS := [68.0, 48.0, 32.0]
+const CAST_STANCE_MOVE_SCALE := 0.28
+const OVERHEAD_LIFT_THRESHOLD           := 4.0
+const OVERHEAD_LIFT_START_ELEV          := 0.28
+@export var backcast_load_elev          := 1.12   # how high the rod must rise to load a backcast
+const OVERHEAD_BACKCAST_RELEASE_ELEV    := 0.58
+@export var forward_commit_elev         := 0.10   # how low the rod must drop to finish a forward stroke
+const OVERHEAD_ARC_MAX_ELEV             := 1.42
+const FORWARD_ARC_MAX_ELEV              := 1.05
+# False-cast rhythm: the line unrolls over a half-period that scales with how much
+# line is out (longer line = slower rhythm). The player reverses each stroke when
+# the loop is straight (~progress 1.0). Delivery only fires once the line is loaded.
+@export var delivery_load_min           := 0.90
+@export var delivery_timing_min         := 0.70   # the delivery stroke must let the loop straighten first
+@export var tight_load_gain             := 0.30   # line load added per well-timed (tight) stroke
+@export var unroll_time_min             := 0.45   # seconds, short line
+@export var unroll_time_max             := 1.30   # seconds, full line out
 const AMBIENT_UPDATE_INTERVAL := 0.10
 const FISH_AI_UPDATE_INTERVAL := 0.12
 const FISH_VISUAL_UPDATE_INTERVAL := 0.06
@@ -63,7 +106,8 @@ const RISE_RING_SEGMENTS := 36
 @onready var cast_state_label: Label = $HUD/TacklePanel/Margin/VBox/CastStateLabel
 @onready var hatch_label: Label = $HUD/TacklePanel/Margin/VBox/HatchLabel
 
-var _casting_loop_label: Label = null
+var _minigame_panel: Control = null
+var _pause_menu: PauseMenu = null
 
 var reach: LowerMadisonReachScript = null
 var _cast_line: MeshInstance3D = null
@@ -74,10 +118,21 @@ var _last_cast_line_target := Vector3.ZERO
 var _last_cast_line_state := ""
 var _last_cast_line_fly_index := -1
 var _cast_line_cache_valid := false
+var _fly_line_mat: Material = null
+var _leader_mat: Material = null
+var _aerial_line_node: MeshInstance3D = null
+var _aerial_pts: PackedVector3Array = PackedVector3Array()  # temporally smoothed loop
+var _aerial_phase: String = ""
+var _casting_state_mgr: CastingStateManager = null
+var _line_renderer: CastingLineRenderer = null
 var _cast_target_marker: MeshInstance3D = null
-var _cast_target_marker_mesh: TorusMesh = null
+var _cast_target_marker_mesh: QuadMesh = null
 var _cast_target_marker_material: StandardMaterial3D = null
+var _cast_target_texture: Texture2D = null
 var _selected_cast_target: Dictionary = {}
+# Last delivered target, kept so raising the rod can pick up the line and recast
+# in place (no need to re-click water between casts).
+var _last_cast_target: Dictionary = {}
 var _cast_message := ""
 var _cast_message_timer := 0.0
 var _selected_fly_index := 0
@@ -123,9 +178,15 @@ var _last_net_sample: Dictionary = {}
 var _net_sample_timer := 0.0
 var _last_sound_cue := ""
 var _default_camera_fov := 68.0
-var _cast_zoom_index := 0
 var ambient_effect_density := 1.0
 var _drag_refusal_fired: bool = false
+var _gesture_state: String = "idle"  # presentation mirror of CastingStateManager phase
+# Loop turnover visual
+var _loop_apex_height_cached: float = 0.8
+var _turnover_timer: float = 0.0
+var _turnover_origin: Vector3 = Vector3.ZERO
+var _turnover_landing: Vector3 = Vector3.ZERO
+var _turnover_apex_h: float = 0.4
 var _fighting: bool = false
 var _fight_timer: float = 0.0
 var _fight_duration: float = 0.0
@@ -152,10 +213,13 @@ func _ready() -> void:
 	angler.river_world = self
 	_default_camera_fov = angler.camera_fov()
 	angler.cast_target_requested.connect(_on_cast_target_requested)
-	angler.cast_loop_requested.connect(_on_cast_loop_requested)
-	angler.cast_commit_requested.connect(_on_cast_commit_requested)
+	angler.line_feed_requested.connect(_on_line_feed_requested)
+	angler.line_retrieve_requested.connect(_on_line_retrieve_requested)
+	angler.hookset_requested.connect(_on_hookset_requested)
 	angler.fly_change_requested.connect(_on_fly_change_requested)
-	_show_cast_message("Black's Ford Bend loaded. Q changes adult dry fly; click or Space casts.", 5.0)
+	_show_cast_message("Walk to river · click water to choose target · LMB/RMB strips line · MMB hookset · Tab exits cast", 5.0)
+	_init_fly_line_materials()
+	_init_loop_physics()
 	_update_hud()
 
 
@@ -168,7 +232,9 @@ func _process(delta: float) -> void:
 func _update_time_critical_state(delta: float) -> void:
 	_update_dry_fly_drift(delta)
 	_update_fish_fight(delta)
-	_update_cast_target_controls(delta)
+	_drive_casting_loop(delta)
+	_update_aerial_cast_line(delta)
+	_update_turnover(delta)
 	_net_sample_timer = maxf(_net_sample_timer - delta, 0.0)
 	if _cast_message_timer > 0.0:
 		_cast_message_timer = maxf(_cast_message_timer - delta, 0.0)
@@ -214,16 +280,15 @@ func _update_scheduled_systems(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_button := event as InputEventMouseButton
-		if _selected_cast_target.is_empty() or not mouse_button.pressed:
-			pass
-		elif mouse_button.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_adjust_cast_zoom(1)
-			get_viewport().set_input_as_handled()
-			return
-		elif mouse_button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_adjust_cast_zoom(-1)
-			get_viewport().set_input_as_handled()
-			return
+		if not _selected_cast_target.is_empty() and mouse_button.pressed:
+			if mouse_button.button_index == MOUSE_BUTTON_WHEEL_UP:
+				_adjust_cast_line_length(1)
+				get_viewport().set_input_as_handled()
+				return
+			elif mouse_button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				_adjust_cast_line_length(-1)
+				get_viewport().set_input_as_handled()
+				return
 	if not (event is InputEventKey):
 		return
 	var key := event as InputEventKey
@@ -232,12 +297,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if key.echo:
 		return
 	if not _selected_cast_target.is_empty():
-		if event.is_action_pressed("cast_zoom_in"):
-			_adjust_cast_zoom(1)
+		if event.is_action_pressed("cast_line_longer"):
+			_adjust_cast_line_length(1)
 			get_viewport().set_input_as_handled()
 			return
-		if event.is_action_pressed("cast_zoom_out"):
-			_adjust_cast_zoom(-1)
+		if event.is_action_pressed("cast_line_shorter"):
+			_adjust_cast_line_length(-1)
 			get_viewport().set_input_as_handled()
 			return
 	if key.physical_keycode == KEY_N:
@@ -252,7 +317,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func is_casting_control_active() -> bool:
-	return not _selected_cast_target.is_empty()
+	return not _selected_cast_target.is_empty() or _fighting
+
+
+func casting_movement_scale() -> float:
+	if _fighting:
+		return 0.0
+	if not _selected_cast_target.is_empty():
+		return CAST_STANCE_MOVE_SCALE
+	return 1.0
 
 
 func movement_speed_at(world_pos: Vector3, walk_speed: float, wade_speed: float) -> float:
@@ -843,16 +916,26 @@ func _add_landscape_quad(tool: SurfaceTool, x0: float, z0: float, x1: float, z1:
 
 
 func _setup_casting_loop_hud() -> void:
-	_casting_loop_label = Label.new()
-	_casting_loop_label.name = "CastingLoopHUD"
-	_casting_loop_label.offset_left = 22.0
-	_casting_loop_label.offset_top = 148.0
-	_casting_loop_label.offset_right = 520.0
-	_casting_loop_label.offset_bottom = 300.0
-	_casting_loop_label.add_theme_color_override("font_color", Color(0.74, 0.94, 1.0, 0.96))
-	_casting_loop_label.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.05, 0.88))
-	_casting_loop_label.add_theme_constant_override("outline_size", 3)
-	$HUD.add_child(_casting_loop_label)
+	_minigame_panel = CastingMinigamePanelScript.new()
+	_minigame_panel.name = "CastingMinigamePanel"
+	_minigame_panel.anchor_left = 0.0
+	_minigame_panel.anchor_right = 1.0
+	_minigame_panel.anchor_top = 0.75
+	_minigame_panel.anchor_bottom = 1.0
+	_minigame_panel.offset_left = 0.0
+	_minigame_panel.offset_right = 0.0
+	_minigame_panel.offset_top = 0.0
+	_minigame_panel.offset_bottom = 0.0
+	_minigame_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_minigame_panel.visible = false
+	$HUD.add_child(_minigame_panel)
+
+	# ESC pause / config menu (built with live references to world + angler).
+	_pause_menu = PauseMenuScript.new()
+	_pause_menu.name = "PauseMenu"
+	_pause_menu.world = self
+	_pause_menu.angler = angler
+	$HUD.add_child(_pause_menu)
 
 
 func _setup_debug_hud() -> void:
@@ -895,16 +978,46 @@ func _on_cast_target_requested(origin: Vector3, direction: Vector3) -> void:
 	_show_cast_message("Target landed on the bank. Aim closer to current.", 2.2)
 
 
-func _on_cast_loop_requested(phase: String) -> void:
-	if practice_cast_loop(phase):
+func _on_line_feed_requested(amount: float) -> void:
+	if _selected_cast_target.is_empty():
 		return
-	_show_cast_message("Select a water target before practicing forward/backcasts.", 2.2)
+	var current := float(_selected_cast_target.get("line_length", DEFAULT_LINE_LENGTH))
+	_selected_cast_target["line_length"] = clampf(current + amount, CAST_LINE_LENGTH_MIN, CAST_LINE_LENGTH_MAX)
+	var new_len := float(_selected_cast_target["line_length"])
+	var target: Vector3 = _selected_cast_target["target"]
+	_rebuild_cast_line(_current_rod_tip(), target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
+	_cast_state = "TARGET SET · line %.0fm · lower rod to deliver" % new_len
+	_post_cast_state = _cast_state
 
 
-func _on_cast_commit_requested(style: String) -> void:
-	if perform_selected_cast(style):
+func _on_line_retrieve_requested(amount: float) -> void:
+	if _selected_cast_target.is_empty():
 		return
-	_show_cast_message("Select a water target first, then press O for overhead or R for roll cast.", 2.4)
+	var current := float(_selected_cast_target.get("line_length", DEFAULT_LINE_LENGTH))
+	_selected_cast_target["line_length"] = clampf(current - amount, CAST_LINE_LENGTH_MIN, CAST_LINE_LENGTH_MAX)
+	var new_len := float(_selected_cast_target["line_length"])
+	var target: Vector3 = _selected_cast_target["target"]
+	_rebuild_cast_line(_current_rod_tip(), target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
+	_cast_state = "TARGET SET · line %.0fm · lower rod to deliver" % new_len
+	_post_cast_state = _cast_state
+
+
+func _on_hookset_requested() -> void:
+	if not _pending_take.is_empty():
+		try_hookset()
+		return
+	if _fighting:
+		_show_cast_message("Fighting fish — keep tension!", 1.5)
+		return
+	if _fly_is_on_water():
+		_active_drift.clear()
+		_pending_take.clear()
+		_drift_readout = ""
+		_clear_cast_visuals()
+		_cast_state = "FLY LIFTED — click water for new target"
+		_post_cast_state = _cast_state
+		_show_cast_message("Fly lifted. Click water to select a new target.", 2.0)
+		return
 
 
 func _on_drag_refusal(fly_position: Vector3) -> void:
@@ -933,7 +1046,10 @@ func _start_fish_fight(fish: Dictionary, fly_name: String) -> void:
 	_fighting_fish = fish
 	_fighting_fly_name = fly_name
 	var species := int(fish.get("species", 0))
-	_fight_duration = 4.0 if species == 0 else (5.0 if species == 1 else 2.5)
+	match species:
+		0: _fight_duration = 4.0
+		1: _fight_duration = 5.0
+		_: _fight_duration = 2.5
 	_cast_state = "FIGHTING — HOLD ON"
 	_post_cast_state = "FIGHTING — HOLD ON"
 
@@ -944,7 +1060,7 @@ func _update_fish_fight(delta: float) -> void:
 	_fight_timer += delta
 	_fight_tension = 0.5 + 0.45 * sin(_fight_timer * 3.5)
 	_cast_state = "FIGHTING — TENSION: %d%%" % int(_fight_tension * 100.0)
-	if _fight_tension < 0.05:
+	if _fight_tension <= 0.05:
 		_fighting = false
 		_cast_state = "FISH OFF — SLACK LINE"
 		_post_cast_state = "READY TO CAST"
@@ -982,7 +1098,7 @@ func select_cast_target(origin: Vector3, target: Vector3) -> bool:
 	var landing := reach.sample(clamped_target)
 	if not bool(landing["is_water"]):
 		_selected_cast_target.clear()
-		_restore_cast_zoom()
+		_restore_cast_fov()
 		_cast_state = "READY TO CAST"
 		_post_cast_state = "READY TO CAST"
 		return false
@@ -991,31 +1107,16 @@ func select_cast_target(origin: Vector3, target: Vector3) -> bool:
 		"origin": origin,
 		"target": clamped_target,
 		"landing": landing,
+		"line_length": DEFAULT_LINE_LENGTH,
 	}
-	_cast_state = "TARGET SELECTED • WASD AIM • Z/X ZOOM • O/R CAST"
+	_cast_state = "TARGET SET · LMB strip line · RMB retrieve · raise rod · lower to deliver"
 	_post_cast_state = _cast_state
 	_cast_state_timer = 0.0
-	if _cast_zoom_index == 0:
-		_cast_zoom_index = 1
-	_apply_cast_zoom()
 	_render_cast_target(origin, clamped_target)
+	_enter_casting_zoom(clamped_target)
 	var selected := FLY_OPTIONS[_selected_fly_index] as Dictionary
-	_show_cast_message("Target selected for %s. WASD fine-tunes the cast zone; Z/X or wheel changes zoom; O overhead, R roll." % selected["name"], 4.0)
-	return true
-
-
-func practice_cast_loop(phase: String) -> bool:
-	if _selected_cast_target.is_empty():
-		return false
-	var loop_phase := "BACKCAST" if phase.to_lower().begins_with("back") else "FORWARD CAST"
-	var rod_style := "back" if loop_phase == "BACKCAST" else "forward"
-	angler.play_cast_animation(rod_style)
-	_cast_state = "LOOP • %s" % loop_phase
-	_post_cast_state = "TARGET SELECTED • WASD AIM • Z/X ZOOM • O/R CAST"
-	_cast_state_timer = 0.62
-	var target: Vector3 = _selected_cast_target["target"]
-	_rebuild_cast_line(_current_rod_tip(), target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
-	_show_cast_message("%s: load the rod, then finish with O overhead or R roll." % loop_phase.capitalize(), 1.8)
+	var target_dist := origin.distance_to(clamped_target)
+	_show_cast_message("Target %.0fm — strip out %.0fm more line with LMB, then raise rod to cast." % [target_dist, maxf(target_dist - DEFAULT_LINE_LENGTH, 0.0)], 4.2)
 	return true
 
 
@@ -1023,28 +1124,86 @@ func perform_selected_cast(style: String) -> bool:
 	if _selected_cast_target.is_empty():
 		return false
 	var cast_style := _normalized_cast_style(style)
+	# Load/quality are owned by the casting seam; slack is derived here from them.
+	var line_load: float = _casting_state_mgr.get_line_load() if _casting_state_mgr != null else 0.0
+	var loop_quality: String = _casting_state_mgr.get_loop_quality() if _casting_state_mgr != null else "none"
+	var pending_slack := 0.0
 	var origin := _current_rod_tip()
 	var target: Vector3 = _selected_cast_target["target"]
 	var landing: Dictionary = reach.sample(target)
 	if not bool(landing["is_water"]):
 		_selected_cast_target.clear()
-		_restore_cast_zoom()
+		_exit_casting_zoom()
+		_restore_cast_fov()
 		_clear_cast_visuals()
 		_show_cast_message("Selected target is no longer on water. Choose another target.", 2.2)
 		return false
+	# Landing point = rod direction × technique distance
+	var intended_dist := float(_selected_cast_target.get("line_length", origin.distance_to(target)))
+	# Line tension vs slack: line beyond the load's carry limit piles up short.
+	var carry_limit: float = lerpf(CARRY_LIMIT_MIN, CARRY_LIMIT_MAX, clampf(line_load, 0.0, 1.0))
+	pending_slack = maxf(intended_dist - carry_limit, 0.0)
+	if pending_slack > 0.0:
+		intended_dist = carry_limit + pending_slack * 0.35
+	var cast_dir := _current_cast_direction()
+	var actual_dist: float
+	if line_load > 0.0 and line_load < 0.5:
+		actual_dist = intended_dist * (line_load / 0.5)
+	elif line_load > 1.1:
+		actual_dist = intended_dist * (1.0 + (line_load - 1.0) * 0.28)
+	else:
+		actual_dist = intended_dist
+	# Form drag: wide/tailing loops shed distance.
+	var drag_factor: float = float(LOOP_DRAG_FACTOR.get(loop_quality, 0.85))
+	actual_dist *= drag_factor
+	var actual_target := _clamp_to_world_bounds(origin + cast_dir * actual_dist)
+	actual_target.y = LowerMadisonReachScript.WATER_HEIGHT
+	landing = reach.sample(actual_target)
+	if not bool(landing["is_water"]):
+		actual_target = target
+		landing = reach.sample(actual_target)
+	_exit_casting_zoom()
 	angler.play_cast_animation(cast_style)
 	_clear_cast_target_marker()
-	_render_cast(origin, target)
+	# Loop turnover visual: nose unrolls from rod tip to landing (skipped headless).
+	# Set before _render_cast so the on-water line stays hidden until the loop arrives.
+	if DisplayServer.get_name() != "headless":
+		_turnover_timer = TURNOVER_DURATION
+		_turnover_origin = origin
+		_turnover_landing = actual_target
+		_turnover_apex_h = _loop_apex_height_cached
+	_render_cast(origin, actual_target)
 	_post_cast_state = "DRIFTING • %s" % cast_style.to_upper()
 	_cast_state = "CASTING • %s" % cast_style.to_upper()
 	_cast_state_timer = 0.72
 	var water_name: String = landing["habitat"]
-	var hold_distance := reach.nearest_hold_distance(target)
-	var quality := _cast_quality(origin.distance_to(target))
+	var hold_distance := reach.nearest_hold_distance(actual_target)
+	var quality := _cast_quality(origin.distance_to(actual_target))
+	if line_load >= 0.9 and line_load <= 1.1 and quality != "Clean":
+		quality = "Clean"
 	var selected := FLY_OPTIONS[_selected_fly_index] as Dictionary
-	_start_dry_fly_drift(origin, target, landing, selected, cast_style)
-	_apply_cast_disturbance(target, _style_cast_quality(quality, cast_style))
-	var message := "%s %s cast: %s drifting through %s." % [quality, cast_style, selected["name"], water_name]
+	# Sloppy aerial loop / slack line presents worse on the water.
+	var initial_drag := 0.0
+	if loop_quality == "wide":
+		initial_drag = 0.10
+	elif loop_quality == "tailing":
+		initial_drag = 0.18
+	if pending_slack > 2.0:
+		initial_drag += 0.15
+	_start_dry_fly_drift(origin, actual_target, landing, selected, cast_style, initial_drag)
+	_apply_cast_disturbance(actual_target, _style_cast_quality(quality, cast_style))
+	var load_note := ""
+	if line_load < 0.5:
+		load_note = " Short cast — fly landed close."
+	elif line_load >= 0.9 and line_load <= 1.1:
+		load_note = " Loaded perfectly — clean presentation."
+	elif line_load > 1.1:
+		load_note = " Over-loaded — fly ran past target."
+	if pending_slack > 2.0:
+		load_note += " Too much line for the load — it piled up short. Tighter loops to turn it over."
+	elif drag_factor < 0.85:
+		load_note += " Drag pulled it up short of the mark."
+	var message := "%s %s cast: %s drifting through %s.%s" % [quality, cast_style, selected["name"], water_name, load_note]
 	if cast_style == "roll":
 		message += " Low loop keeps it under cover."
 	elif hold_distance <= 3.2:
@@ -1052,8 +1211,9 @@ func perform_selected_cast(style: String) -> bool:
 	elif hold_distance <= 9.0:
 		message += " Good holding water nearby."
 	_show_cast_message(message, 3.5)
+	_last_cast_target = _selected_cast_target.duplicate(true)
 	_selected_cast_target.clear()
-	_restore_cast_zoom()
+	_restore_cast_fov()
 	return true
 
 
@@ -1067,103 +1227,32 @@ func _style_cast_quality(quality: String, style: String) -> String:
 	return "Short" if quality == "Long" else quality
 
 
-func _update_cast_target_controls(delta: float) -> void:
+func _initial_cast_line_length(origin: Vector3, target: Vector3) -> float:
+	var horizontal_origin := Vector2(origin.x, origin.z)
+	var horizontal_target := Vector2(target.x, target.z)
+	return clampf(horizontal_origin.distance_to(horizontal_target), CAST_LINE_LENGTH_MIN, CAST_LINE_LENGTH_MAX)
+
+
+func _adjust_cast_line_length(direction: int) -> void:
 	if _selected_cast_target.is_empty():
 		return
-	var input_vector := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	if input_vector.length_squared() <= 0.0001:
-		return
-	_nudge_selected_cast_target(input_vector, delta)
+	var current_length := float(_selected_cast_target.get("line_length", CAST_LINE_LENGTH_MIN))
+	var next_length := clampf(current_length + float(direction) * CAST_LINE_LENGTH_STEP, CAST_LINE_LENGTH_MIN, CAST_LINE_LENGTH_MAX)
+	_selected_cast_target["line_length"] = next_length
+	_show_cast_message("Line length %.0fm. Target stays fixed on the water; aim with rod and feet." % next_length, 1.6)
 
 
-func _nudge_selected_cast_target(input_vector: Vector2, delta: float) -> bool:
-	if _selected_cast_target.is_empty():
-		return false
-	var target: Vector3 = _selected_cast_target["target"]
-	var right := angler.global_transform.basis.x
-	right.y = 0.0
-	right = right.normalized()
-	var forward := -angler.global_transform.basis.z
-	forward.y = 0.0
-	forward = forward.normalized()
-	var speed := _cast_control_speed()
-	var candidate := target + (right * input_vector.x + forward * -input_vector.y) * speed * delta
-	candidate = _clamp_to_world_bounds(candidate)
-	candidate.y = LowerMadisonReachScript.WATER_HEIGHT
-	var water_target := _water_target_from_candidate(candidate)
-	if water_target == Vector3.INF:
-		return false
-	var landing := reach.sample(water_target)
-	_selected_cast_target["target"] = water_target
-	_selected_cast_target["landing"] = landing
-	_cast_state = "TARGET SELECTED • WASD AIM • Z/X ZOOM • O/R CAST"
-	_post_cast_state = _cast_state
-	_render_cast_target(_current_rod_tip(), water_target)
-	return true
-
-
-func _water_target_from_candidate(candidate: Vector3) -> Vector3:
-	var sample := reach.sample(candidate)
-	if bool(sample["is_water"]):
-		candidate.y = LowerMadisonReachScript.WATER_HEIGHT
-		return candidate
-	var fraction := clampf(float(sample["fraction"]), 0.0, 1.0)
-	var half_width := float(sample["half_width"])
-	var lateral := clampf(float(sample["lateral"]), -half_width * 0.94, half_width * 0.94)
-	var projected := reach.position_at(fraction, lateral, LowerMadisonReachScript.WATER_HEIGHT)
-	if bool(reach.sample(projected)["is_water"]):
-		return projected
-	return Vector3.INF
-
-
-func _cast_control_speed() -> float:
-	var zoom_scale := 1.0 - float(_cast_zoom_index) * 0.22
-	return CAST_TARGET_NUDGE_SPEED * clampf(zoom_scale, 0.48, 1.0)
-
-
-func _adjust_cast_zoom(direction: int) -> void:
-	if _selected_cast_target.is_empty():
-		return
-	_cast_zoom_index = clampi(_cast_zoom_index + direction, 0, CAST_ZOOM_FOVS.size() - 1)
-	_apply_cast_zoom()
-	_show_cast_message("Cast-zone zoom: %s. WASD fine-tunes the target; O overhead or R roll to cast." % _cast_zoom_label(), 1.6)
-
-
-func _apply_cast_zoom() -> void:
-	if angler == null:
-		return
-	var target_fov := _cast_zoom_fov()
-	angler.set_camera_fov(target_fov)
-
-
-func _restore_cast_zoom() -> void:
-	_cast_zoom_index = 0
+func _restore_cast_fov() -> void:
 	if angler == null:
 		return
 	angler.set_camera_fov(_default_camera_fov)
 
 
-func _cast_zoom_fov() -> float:
-	if _cast_zoom_index <= 0:
-		return _default_camera_fov
-	return float(CAST_ZOOM_FOVS[_cast_zoom_index])
-
-
-func _cast_zoom_label() -> String:
-	match _cast_zoom_index:
-		0:
-			return "wide"
-		1:
-			return "focused"
-		_:
-			return "tight"
-
-
 func _render_cast_target(origin: Vector3, target: Vector3) -> void:
 	_rebuild_cast_line(origin, target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
 	_ensure_cast_target_marker()
-	_cast_target_marker.position = target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET + 0.018, 0.0)
-	_cast_target_marker.rotation.x = PI * 0.5
+	_cast_target_marker.position = Vector3(target.x, LowerMadisonReachScript.WATER_HEIGHT + 0.006, target.z)
+	_cast_target_marker.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
 	_cast_target_marker.visible = true
 
 
@@ -1171,15 +1260,13 @@ func _ensure_cast_target_marker() -> void:
 	if _cast_target_marker != null and is_instance_valid(_cast_target_marker):
 		return
 	if _cast_target_marker_mesh == null:
-		_cast_target_marker_mesh = TorusMesh.new()
-		_cast_target_marker_mesh.inner_radius = 0.18
-		_cast_target_marker_mesh.outer_radius = 0.24
-		_cast_target_marker_mesh.rings = 6
-		_cast_target_marker_mesh.ring_segments = 28
+		_cast_target_marker_mesh = QuadMesh.new()
+		_cast_target_marker_mesh.size = Vector2(1.35, 1.35)
 	_cast_target_marker = MeshInstance3D.new()
 	_cast_target_marker.name = "CastTargetMarker"
 	_cast_target_marker.mesh = _cast_target_marker_mesh
 	_cast_target_marker.material_override = _target_marker_material()
+	_cast_target_marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_cast_target_marker)
 
 
@@ -1188,26 +1275,39 @@ func _target_marker_material() -> Material:
 		return _cast_target_marker_material
 	_cast_target_marker_material = StandardMaterial3D.new()
 	_cast_target_marker_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_cast_target_marker_material.albedo_color = Color(0.30, 0.86, 1.0, 0.62)
+	_cast_target_marker_material.albedo_texture = _target_marker_texture()
+	_cast_target_marker_material.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
+	_cast_target_marker_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_cast_target_marker_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_cast_target_marker_material.emission_enabled = true
-	_cast_target_marker_material.emission = Color(0.18, 0.62, 1.0, 1.0)
-	_cast_target_marker_material.emission_energy_multiplier = 0.45
+	_cast_target_marker_material.emission_texture = _target_marker_texture()
+	_cast_target_marker_material.emission = Color(1.0, 1.0, 1.0, 1.0)
+	_cast_target_marker_material.emission_energy_multiplier = 0.85
 	return _cast_target_marker_material
+
+
+func _target_marker_texture() -> Texture2D:
+	if _cast_target_texture != null:
+		return _cast_target_texture
+	_cast_target_texture = load(CAST_TARGET_TEXTURE_PATH) as Texture2D
+	return _cast_target_texture
 
 
 func _render_cast(origin: Vector3, target: Vector3) -> void:
 	_clear_cast_visuals()
-	_rebuild_cast_line(origin, target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
+	if _turnover_timer <= 0.0:
+		_rebuild_cast_line(origin, target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
 
 	var selected := FLY_OPTIONS[_selected_fly_index] as Dictionary
 	_cast_marker = AdultInsectScript.new()
 	_cast_marker.name = "SelectedAdultDryFly"
 	_cast_marker.configure(int(selected["kind"]), 0.10, false)
 	_cast_marker.position = target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0)
+	_cast_marker.visible = _turnover_timer <= 0.0
 	add_child(_cast_marker)
 
 
-func _start_dry_fly_drift(origin: Vector3, target: Vector3, landing: Dictionary, selected: Dictionary, cast_style: String = "overhead") -> void:
+func _start_dry_fly_drift(origin: Vector3, target: Vector3, landing: Dictionary, selected: Dictionary, cast_style: String = "overhead", initial_drag: float = 0.0) -> void:
 	var flow: Vector3 = landing["current_vector"]
 	var is_surface := bool(selected.get("surface", true))
 	var depth_layer := String(selected.get("depth_layer", "surface"))
@@ -1222,7 +1322,7 @@ func _start_dry_fly_drift(origin: Vector3, target: Vector3, landing: Dictionary,
 		"position": target + Vector3(0.0, fly_y_offset, 0.0),
 		"age": 0.0,
 		"duration": DRY_FLY_DRIFT_DURATION,
-		"drag": 0.0,
+		"drag": clampf(initial_drag, 0.0, DRY_FLY_MAX_DRAG),
 		"previous_flow": flow,
 		"fly_name": String(selected["name"]),
 		"cast_style": cast_style,
@@ -1521,18 +1621,24 @@ func _apply_cast_disturbance(target: Vector3, quality: String) -> void:
 
 
 func _update_cast_visuals(origin: Vector3, target: Vector3) -> void:
+	# While the loop is turning over, the unrolling aerial loop owns the visuals.
+	if _turnover_timer > 0.0:
+		return
 	if _cast_marker != null and is_instance_valid(_cast_marker):
 		_cast_marker.global_position = target
+		_cast_marker.visible = true
 	_rebuild_cast_line(origin, target)
 
 
 func _refresh_cast_line_attachment() -> void:
+	if _turnover_timer > 0.0:
+		return
 	if _cast_line == null and _leader_line == null:
 		return
 	if _cast_marker != null and is_instance_valid(_cast_marker):
 		_update_cast_visuals(_current_rod_tip(), _cast_marker.global_position)
 		return
-	if not _selected_cast_target.is_empty():
+	if not _selected_cast_target.is_empty() and _fly_is_on_water():
 		var target: Vector3 = _selected_cast_target["target"]
 		_rebuild_cast_line(_current_rod_tip(), target + Vector3(0.0, DRY_FLY_SURFACE_OFFSET, 0.0))
 
@@ -1544,20 +1650,29 @@ func _rebuild_cast_line(origin: Vector3, target: Vector3) -> void:
 	var fly_position := target
 	var fly_sample := reach.sample(fly_position)
 	var leader_start_t := _leader_start_fraction_for_line(origin, fly_position)
-	var line_mesh := _build_line_strip_mesh(origin, fly_position, fly_sample, 0.0, leader_start_t, leader_start_t, MAT_FLY_LINE)
-	var leader_mesh := _build_line_strip_mesh(origin, fly_position, fly_sample, leader_start_t, 1.0, leader_start_t, MAT_LEADER)
+	var line_points := _build_line_points(origin, fly_position, fly_sample, 0.0, leader_start_t, leader_start_t)
+	var leader_points := _build_line_points(origin, fly_position, fly_sample, leader_start_t, 1.0, leader_start_t)
+	var line_mesh := _build_ribbon_mesh(line_points, CAST_LINE_RIBBON_HALF_WIDTH, _fly_line_mat)
+	var leader_mesh := _build_ribbon_mesh(leader_points, LEADER_RIBBON_HALF_WIDTH, _leader_mat)
 
 	if _cast_line == null or not is_instance_valid(_cast_line):
 		_cast_line = MeshInstance3D.new()
 		_cast_line.name = "CastLine"
+		_cast_line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_cast_line)
 	_cast_line.mesh = line_mesh
+	# Ribbon meshes weld/offset their triangle vertices, so the raw vertex array no
+	# longer maps to the line path. Expose the source centerline for callers and
+	# tests that validate rod-tip attachment, the line→leader seam, and the fly end.
+	_cast_line.set_meta("centerline", line_points)
 
 	if _leader_line == null or not is_instance_valid(_leader_line):
 		_leader_line = MeshInstance3D.new()
 		_leader_line.name = "CastLeader"
+		_leader_line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_leader_line)
 	_leader_line.mesh = leader_mesh
+	_leader_line.set_meta("centerline", leader_points)
 	_last_cast_line_origin = origin
 	_last_cast_line_target = target
 	_last_cast_line_state = _cast_state
@@ -1603,15 +1718,68 @@ func _leader_start_fraction_for_line(origin: Vector3, fly_position: Vector3) -> 
 	return clampf(1.0 - (leader_length / distance), 0.0, 1.0)
 
 
-func _build_line_strip_mesh(origin: Vector3, fly_position: Vector3, fly_sample: Dictionary, start_t: float, end_t: float, leader_start_t: float, material: Material) -> ImmediateMesh:
-	var mesh := ImmediateMesh.new()
-	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, material)
+func _init_fly_line_materials() -> void:
+	if MAT_FLY_LINE is StandardMaterial3D:
+		var mat := (MAT_FLY_LINE as StandardMaterial3D).duplicate() as StandardMaterial3D
+		mat.emission_enabled = true
+		mat.emission = Color(0.55, 0.62, 0.28)
+		mat.emission_energy_multiplier = 0.35
+		# Double-sided: the camera-facing aerial ribbon can wind either way per segment.
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_fly_line_mat = mat
+	else:
+		_fly_line_mat = MAT_FLY_LINE
+	_leader_mat = MAT_LEADER
+
+
+func _init_loop_physics() -> void:
+	_casting_state_mgr = CastingStateManager.new()
+	add_child(_casting_state_mgr)
+	_casting_state_mgr.delivered.connect(_on_cast_delivered)
+	_casting_state_mgr.false_cast.connect(_on_cast_false_cast)
+	_casting_state_mgr.stroke_scored.connect(_on_cast_stroke_scored)
+	_line_renderer = CastingLineRenderer.new()
+	add_child(_line_renderer)
+
+
+func _build_ribbon_mesh(points: PackedVector3Array, half_width: float, material: Material) -> ArrayMesh:
+	if DisplayServer.get_name() == "headless":
+		return ArrayMesh.new()
+
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := points.size()
+	for i in range(n - 1):
+		var a := points[i]
+		var b := points[i + 1]
+		var seg_dir := (b - a).normalized()
+		var up := Vector3.UP
+		var right := seg_dir.cross(up).normalized()
+		if right.length_squared() < 0.001:
+			right = seg_dir.cross(Vector3.FORWARD).normalized()
+		var offset := right * half_width
+		var a0 := a - offset
+		var a1 := a + offset
+		var b0 := b - offset
+		var b1 := b + offset
+		tool.set_normal(up)
+		tool.add_vertex(a0)
+		tool.add_vertex(b0)
+		tool.add_vertex(b1)
+		tool.add_vertex(a0)
+		tool.add_vertex(b1)
+		tool.add_vertex(a1)
+	tool.generate_normals()
+	return tool.commit()
+
+
+func _build_line_points(origin: Vector3, fly_position: Vector3, fly_sample: Dictionary, start_t: float, end_t: float, leader_start_t: float) -> PackedVector3Array:
+	var points := PackedVector3Array()
 	for i in range(CAST_LINE_SEGMENTS + 1):
 		var local_t := float(i) / float(CAST_LINE_SEGMENTS)
 		var t := lerpf(start_t, end_t, local_t)
-		mesh.surface_add_vertex(_cast_curve_point(origin, fly_position, fly_sample, t, leader_start_t))
-	mesh.surface_end()
-	return mesh
+		points.append(_cast_curve_point(origin, fly_position, fly_sample, t, leader_start_t))
+	return points
 
 
 func _cast_curve_point(origin: Vector3, fly_position: Vector3, fly_sample: Dictionary, t: float, leader_start_t: float) -> Vector3:
@@ -1638,10 +1806,169 @@ func _clear_cast_visuals() -> void:
 	if _cast_marker != null and is_instance_valid(_cast_marker):
 		_cast_marker.queue_free()
 	_clear_cast_target_marker()
+	_clear_aerial_cast_line()
 	_cast_line = null
 	_leader_line = null
 	_cast_marker = null
 	_invalidate_cast_line_cache()
+
+
+func _update_aerial_cast_line(delta: float) -> void:
+	# During turnover the aerial node is owned by _update_turnover.
+	if _turnover_timer > 0.0:
+		return
+	if _selected_cast_target.is_empty() or _gesture_state == "idle":
+		_clear_aerial_cast_line()
+		return
+	if _gesture_state not in ["backcast", "forward", "lifting_roll"]:
+		_clear_aerial_cast_line()
+		return
+	var origin := _current_rod_tip()
+	var target: Vector3 = _selected_cast_target["target"]
+	var phase := "backcast" if _gesture_state in ["backcast", "lifting_roll"] else "forward"
+	var progress: float = clampf(_casting_state_mgr.get_unroll_progress(), 0.0, 1.3) if _casting_state_mgr != null else 0.0
+	_ensure_aerial_line_node()
+
+	# Hide static cast line during aerial stroke
+	if _cast_line != null and is_instance_valid(_cast_line):
+		_cast_line.visible = false
+	if _aerial_line_node != null:
+		_aerial_line_node.visible = true
+
+	_rebuild_aerial_line(origin, target, phase, progress, delta)
+
+
+func _update_turnover(delta: float) -> void:
+	if _turnover_timer <= 0.0:
+		return
+	_turnover_timer = maxf(_turnover_timer - delta, 0.0)
+	var apex_t := clampf(1.0 - _turnover_timer / TURNOVER_DURATION, 0.0, 1.0)
+	# Loop nose travels from rod tip toward the landing, flattening as it arrives.
+	var apex := _turnover_origin.lerp(_turnover_landing, apex_t)
+	apex.y += _turnover_apex_h * (1.0 - apex_t)
+	var points := PackedVector3Array()
+	var rod_segs: int = AERIAL_LINE_SEGMENTS / 2
+	for i in range(rod_segs + 1):
+		points.append(_turnover_origin.lerp(apex, float(i) / float(rod_segs)))
+	var fly_segs: int = AERIAL_LINE_SEGMENTS - rod_segs
+	for i in range(1, fly_segs + 1):
+		var ft := float(i) / float(fly_segs)
+		var p := apex.lerp(_turnover_landing, ft)
+		p.y += sin(ft * PI) * _turnover_apex_h * 0.4 * (1.0 - apex_t)
+		points.append(p)
+	_ensure_aerial_line_node()
+	_aerial_line_node.mesh = _build_ribbon_mesh(points, CAST_LINE_RIBBON_HALF_WIDTH, _fly_line_mat)
+	if _turnover_timer <= 0.0:
+		# Hand off to the normal bowed cast line + visible fly next frame.
+		_clear_aerial_cast_line()
+
+
+func _ensure_aerial_line_node() -> void:
+	if _aerial_line_node != null and is_instance_valid(_aerial_line_node):
+		return
+	_aerial_line_node = MeshInstance3D.new()
+	_aerial_line_node.name = "AerialCastLine"
+	_aerial_line_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_aerial_line_node)
+
+
+func _clear_aerial_cast_line() -> void:
+	if _aerial_line_node != null and is_instance_valid(_aerial_line_node):
+		_aerial_line_node.queue_free()
+	_aerial_line_node = null
+	_aerial_pts = PackedVector3Array()
+	_aerial_phase = ""
+
+	# Restore static cast line visibility
+	if _cast_line != null and is_instance_valid(_cast_line):
+		_cast_line.visible = true
+
+
+func _rebuild_aerial_line(origin: Vector3, target: Vector3, phase: String, progress: float, delta: float) -> void:
+	# The casting state machine is advanced once per frame in _drive_casting_loop;
+	# here we only read the current loop geometry for rendering.
+	if _casting_state_mgr != null:
+		var loop_state = _casting_state_mgr.get_loop_state()
+
+		# Cast direction and extension (not toward target, but along cast stroke)
+		var cast_dir := _current_cast_direction()
+		cast_dir.y = 0.0
+		if cast_dir.length() < 0.01:
+			cast_dir = Vector3.FORWARD
+		cast_dir = cast_dir.normalized()
+		var leg_dir := cast_dir if phase == "forward" else -cast_dir
+
+		# Line extends along cast direction, grows as stroke progresses
+		var distance := origin.distance_to(target)
+		var reach := distance * (0.7 if phase == "backcast" else 1.0)
+		var ext := reach * (0.12 + 0.88 * (progress if progress <= 1.0 else 1.0))  # extension distance
+
+		# Calculate perpendicular (up) for loop bulge
+		var perpendicular := Vector3.UP
+		var side_vec := leg_dir.cross(perpendicular).normalized()
+		if side_vec.length_squared() < 0.001:
+			side_vec = Vector3.RIGHT
+
+		# Build line path with parabolic loop bulge
+		var target_pts := PackedVector3Array()
+		target_pts.resize(AERIAL_LINE_SEGMENTS + 1)
+
+		var loop_position = loop_state.position_along_line  # [0, 1]
+		var loop_width = loop_state.width  # meters
+
+		for i in range(AERIAL_LINE_SEGMENTS + 1):
+			var t = float(i) / float(AERIAL_LINE_SEGMENTS)  # [0, 1] along line
+
+			# Base position: along cast direction, not toward target
+			var base_pos: Vector3 = origin + leg_dir * ext * t
+
+			# Parabolic offset from loop: distance to loop center, falloff by width
+			var dist_to_loop = absf(t - loop_position)
+			var bulge_factor = maxf(1.0 - (dist_to_loop / maxf(loop_width, 0.05)), 0.0)
+			# Taper the bulge to zero at both ends so the line meets the rod tip (t=0)
+			# and the fly (t=1) cleanly instead of kinking up off the tip.
+			var end_anchor := smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.85, 1.0, t))
+			var bulge_amount = bulge_factor * bulge_factor * loop_width * 4.0 * end_anchor
+
+			# Apply perpendicular offset (both up and slightly to side for visual interest)
+			var offset = perpendicular * bulge_amount + side_vec * bulge_amount * 0.3
+			target_pts[i] = base_pos + offset
+
+		# Temporal smoothing — but keep the near-tip segment locked to the current rod
+		# tip (k -> 1 at t=0) so the line never visibly detaches as the tip moves; the
+		# fly end is smoothed normally.
+		if _aerial_pts.size() != target_pts.size() or _aerial_phase != phase:
+			_aerial_pts = target_pts.duplicate()
+		else:
+			var base_k := minf(delta * 14.0, 1.0)
+			for i in range(target_pts.size()):
+				var ti := float(i) / float(AERIAL_LINE_SEGMENTS)
+				var k := lerpf(1.0, base_k, smoothstep(0.0, 0.4, ti))
+				_aerial_pts[i] = _aerial_pts[i].lerp(target_pts[i], k)
+
+		_aerial_phase = phase
+		_aerial_pts[0] = origin  # hard-anchor to rod tip
+
+		# Use loop-aware ribbon renderer (camera-facing so the loop nose doesn't spike)
+		if _line_renderer != null:
+			var cam := get_viewport().get_camera_3d()
+			var cam_pos := cam.global_position if cam != null else Vector3.INF
+			var cam_right := cam.global_transform.basis.x if cam != null else Vector3.ZERO
+			_aerial_line_node.mesh = _line_renderer.build_ribbon_with_loop(
+				_aerial_pts,
+				CAST_LINE_RIBBON_HALF_WIDTH,
+				loop_state,
+				_fly_line_mat,
+				cam_pos,
+				cam_right
+			)
+		else:
+			_aerial_line_node.mesh = _build_ribbon_mesh(_aerial_pts, CAST_LINE_RIBBON_HALF_WIDTH, _fly_line_mat)
+
+
+func _cubic3(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: float) -> Vector3:
+	var u := 1.0 - t
+	return (u * u * u) * p0 + (3.0 * u * u * t) * p1 + (3.0 * u * t * t) * p2 + (t * t * t) * p3
 
 
 func _clear_cast_target_marker() -> void:
@@ -1659,12 +1986,13 @@ func _cast_quality(distance: float) -> String:
 
 func _on_fly_change_requested() -> void:
 	_selected_fly_index = (_selected_fly_index + 1) % FLY_OPTIONS.size()
+	_exit_casting_zoom()
 	_selected_cast_target.clear()
 	_active_drift.clear()
 	_pending_take.clear()
 	_drift_readout = ""
 	_clear_cast_visuals()
-	_restore_cast_zoom()
+	_restore_cast_fov()
 	_cast_state = "READY TO CAST"
 	_post_cast_state = "READY TO CAST"
 	_cast_state_timer = 0.0
@@ -1681,9 +2009,18 @@ func _update_hud() -> void:
 	var current: float = sample["current_strength"]
 	var depth: float = sample["depth"]
 	var depth_band: String = sample["depth_band"]
-	var control_hint := "WASD move · mouse look · click/Space target · B backcast · F forward · O overhead · R roll · Q fly · 0-5 debug · Esc mouse"
+	var mode_str := "CASTING" if (angler != null and angler.has_method("is_in_cast_mode") and angler.is_in_cast_mode()) else "EXPLORING"
+	var control_hint: String
 	if not _selected_cast_target.is_empty():
-		control_hint = "CAST MODE: player locked · WASD adjust cast zone · Z/X or wheel zoom (%s) · B/F loop · O/R cast" % _cast_zoom_label()
+		var line_length := float(_selected_cast_target.get("line_length", DEFAULT_LINE_LENGTH))
+		var target_dist := float(_selected_cast_target.get("origin", angler.global_position).distance_to(_selected_cast_target.get("target", angler.global_position)))
+		control_hint = "%s · line %.0fm / %.0fm target · LMB strip · RMB retrieve · mouse rod · lower to deliver · Tab exit" % [mode_str, line_length, target_dist]
+	elif _fighting:
+		control_hint = "%s · FISH ON · mouse rod tension · MMB hookset · Tab exit" % mode_str
+	elif mode_str == "CASTING":
+		control_hint = "CASTING · click water for target · Tab to return to explore · Q fly · 0-5 debug"
+	else:
+		control_hint = "EXPLORING · WASD move · mouse look · click water to cast · Q fly · N net · 0-5 debug · Esc mouse"
 	status_label.text = "Lower Madison · Black's Ford Bend · %s · %s · depth %.2fm %s · current %.2f · %.1f hr
 %s" % [
 		tile_name,
@@ -1705,21 +2042,230 @@ func _update_hud() -> void:
 
 
 func _update_casting_loop_hud() -> void:
-	if _casting_loop_label == null:
+	_update_minigame_panel()
+
+
+func _update_minigame_panel() -> void:
+	if _minigame_panel == null:
 		return
-	var mode := "AIM"
-	var diagram := "  o\n /|\\__ rod\n / \\    ~~~ line"
-	var bind_line := "Space/LMB set target"
+	var show := not _selected_cast_target.is_empty()
+	_minigame_panel.visible = show
+	if not show:
+		return
+	_minigame_panel.gesture_state = _gesture_state
+	if _casting_state_mgr != null:
+		_minigame_panel.line_load = _casting_state_mgr.get_line_load()
+		_minigame_panel.loop_quality = _casting_state_mgr.get_loop_quality()
+		_minigame_panel.unroll_progress = _casting_state_mgr.get_unroll_progress()
+		_minigame_panel.stroke_dir = _casting_state_mgr.get_stroke_dir()
+		_minigame_panel.ready_to_deliver = _casting_state_mgr.is_ready_to_deliver()
+
+	# Loop physics feedback
+	if _casting_state_mgr != null:
+		var loop_state = _casting_state_mgr.get_loop_state()
+		_minigame_panel.loop_position = loop_state.position_along_line
+		_minigame_panel.loop_width = loop_state.width
+
+	_minigame_panel.queue_redraw()
+
+
+func _reset_cast_loop_state() -> void:
+	# Stroke/load/quality state now lives in the casting seam.
+	if _casting_state_mgr != null:
+		_casting_state_mgr.reset_to_setup()
+	_gesture_state = "idle"
+	_loop_apex_height_cached = 0.8
+
+
+func _enter_casting_zoom(target: Vector3) -> void:
+	_reset_cast_loop_state()
+	if angler != null and angler.has_method("enter_casting_stance"):
+		angler.enter_casting_stance(target)
+
+
+# Pick up the line and re-arm the last delivered target so the player can recast
+# without re-selecting water. Triggered by raising the rod after a delivery.
+func _try_cast_pickup() -> void:
+	if _fighting or _last_cast_target.is_empty():
+		return
+	if angler == null or angler.rod == null or not angler.is_in_cast_mode():
+		return
+	if angler.rod.get_elevation_offset() < OVERHEAD_LIFT_START_ELEV:
+		return
+	_active_drift.clear()
+	_pending_take.clear()
+	_clear_cast_visuals()
+	_selected_cast_target = _last_cast_target.duplicate(true)
+	_reset_cast_loop_state()
+	_render_cast_target(_current_rod_tip(), _selected_cast_target["target"])
+	_show_cast_message("Line picked up — backcast to recast.", 1.2)
+
+
+func _exit_casting_zoom() -> void:
+	if _casting_state_mgr != null:
+		_casting_state_mgr.reset_to_setup()
+	_gesture_state = "idle"
+	if angler != null and angler.rod != null:
+		angler.rod.set_live_cast_load("idle", 0.0)
+	if _minigame_panel != null:
+		_minigame_panel.visible = false
+
+
+func _rod_elevation() -> float:
+	if angler == null or angler.rod == null:
+		return 0.0
+	return angler.rod.get_elevation_offset()
+
+
+func _current_cast_direction() -> Vector3:
+	var fwd := -angler.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	if angler.has_method("get_rod_aim_yaw"):
+		var yaw: float = angler.get_rod_aim_yaw()
+		fwd = fwd.rotated(Vector3.UP, yaw)
+	return fwd
+
+
+func _fly_is_on_water() -> bool:
+	return not _active_drift.is_empty()
+
+
+func _elevation_to_arc(elev: float, max_elev: float) -> float:
+	return clampf(elev / maxf(max_elev, 0.01), 0.0, 1.0)
+
+
+# --- Casting loop integration: feed the CastingStateManager seam and react to its
+# events. The module owns phase/load/quality/delivery; the world owns the rod visual,
+# HUD strings, reach landing, drift and fish spook. ---
+
+func _drive_casting_loop(delta: float) -> void:
+	if _selected_cast_target.is_empty():
+		_try_cast_pickup()
+		if _selected_cast_target.is_empty():
+			return
+	if angler == null or angler.rod == null or _casting_state_mgr == null:
+		return
+	var elev: float = _rod_elevation()
+	var cast_input: Dictionary = angler.get_cast_input_state()
+	var line_length := float(_selected_cast_target.get("line_length", DEFAULT_LINE_LENGTH))
+	var lateral: float = angler.get_rod_aim_yaw() if angler.has_method("get_rod_aim_yaw") else 0.0
+	_casting_state_mgr.set_cast_context(line_length, lateral, _fly_is_on_water(), angler.rod.get_peak_lift_speed())
+	_casting_state_mgr.update(delta, elev, float(cast_input.get("mouse_dy", 0.0)))
+	_sync_casting_presentation(elev)
+
+
+# Mirrors the module phase into the presentation state the rod/HUD/aerial-line code
+# reads, and drives the per-phase rod flex visual and HUD prompts.
+func _sync_casting_presentation(elev: float) -> void:
+	var prev := _gesture_state
+	_gesture_state = _gesture_state_for_phase(_casting_state_mgr.get_phase_name())
+	# Peak lift speed is consumed at the SETUP decision; reset it once a stroke begins
+	# so the next lift is re-measured.
+	if prev == "idle" and _gesture_state != "idle" and angler.rod != null:
+		angler.rod.reset_peak_lift_speed()
+	match _gesture_state:
+		"backcast":
+			angler.rod.set_live_cast_load("backcast", _elevation_to_arc(elev, OVERHEAD_ARC_MAX_ELEV))
+			if prev != "backcast":
+				_set_cast_state("BACKCAST — reverse when the loop straightens (green)")
+				if prev == "idle":
+					_show_cast_message("Backcast — raise the rod, reverse when the loop turns green.", 1.6)
+		"forward":
+			angler.rod.set_live_cast_load("forward", _elevation_to_arc(elev, FORWARD_ARC_MAX_ELEV))
+			if prev != "forward":
+				_set_cast_state("FORWARD — false-cast to load, deliver when LOADED")
+		"lifting_roll":
+			if prev != "lifting_roll":
+				_show_cast_message("Gentle lift — D-loop forming. Sweep forward to roll cast.", 1.8)
+		_:
+			angler.rod.set_live_cast_load("idle", 0.0)
+
+
+func _gesture_state_for_phase(phase_name: String) -> String:
+	match phase_name:
+		"BACKCAST":
+			return "backcast"
+		"FORWARD":
+			return "forward"
+		"ROLL":
+			return "lifting_roll"
+		_:
+			return "idle"
+
+
+func _set_cast_state(text: String) -> void:
+	_cast_state = text
+	_post_cast_state = text
+
+
+func _apex_for_quality(quality: String) -> float:
+	match quality:
+		"tight":
+			return 0.35
+		"adequate":
+			return 0.80
+		"tailing":
+			return 0.15
+		"wide":
+			return 2.0
+		_:
+			return 0.8
+
+
+func _on_cast_delivered(style: String, _line_load_value: float, _loop_quality_value: String) -> void:
+	if style == "roll":
+		_loop_apex_height_cached = 0.80
+	perform_selected_cast(style)
+	if angler != null and angler.rod != null:
+		angler.rod.set_live_cast_load("idle", 0.0)
+		angler.rod.reset_elevation()
+
+
+func _on_cast_false_cast(count: int) -> void:
 	if not _selected_cast_target.is_empty():
-		mode = "TARGET LOCKED · ZOOM %s" % _cast_zoom_label().to_upper()
-		diagram = "  o   ↶ backcast\n /|\\====> forward loop\n / \\      • target"
-		bind_line = "WASD cast-zone aim · Z/X zoom · B/F loop · O overhead · R/RMB roll"
-	elif not _active_drift.is_empty():
-		mode = "DRIFTING"
-		var style := String(_active_drift.get("cast_style", "overhead")).to_upper()
-		diagram = "  o--rod~~~~ leader•\n /|\\       %s" % style
-		bind_line = "Click/Space hookset or retarget after drift"
-	_casting_loop_label.text = "CASTING LOOP · %s\n%s\n%s" % [mode, diagram, bind_line]
+		_apply_false_cast_spook(_selected_cast_target["target"], count)
+
+
+func _on_cast_stroke_scored(quality: String, line_load_value: float) -> void:
+	_loop_apex_height_cached = _apex_for_quality(quality)
+	match quality:
+		"tight":
+			_show_cast_message("Tight loop — %d%% loaded." % int(line_load_value * 100.0), 0.7)
+		"adequate":
+			_show_cast_message("Adequate loop — %d%% loaded." % int(line_load_value * 100.0), 0.7)
+		"tailing":
+			_show_cast_message("Tailing — reversed too early. Let the line straighten in the air.", 1.3)
+		"wide":
+			_show_cast_message("Wide — waited too long, the loop collapsed. Reverse on green.", 1.3)
+
+
+func _apply_false_cast_spook(target: Vector3, count: int) -> void:
+	if count < 3 or builder == null:
+		return
+	var radius_sq := FISH_TAKE_RADIUS * FISH_TAKE_RADIUS * 4.0
+	if count == 3:
+		var best_i := -1
+		var best_sq := radius_sq
+		for i in range(builder.fish_hold_entries.size()):
+			var fish := builder.fish_hold_entries[i] as Dictionary
+			var d := (fish["position"] as Vector3).distance_squared_to(target)
+			if d < best_sq:
+				best_sq = d
+				best_i = i
+		if best_i >= 0:
+			var fish := builder.fish_hold_entries[best_i] as Dictionary
+			fish["alert"] = minf(float(fish.get("alert", 0.0)) + 0.15, 1.0)
+			builder.fish_hold_entries[best_i] = fish
+		return
+	for i in range(builder.fish_hold_entries.size()):
+		var fish := builder.fish_hold_entries[i] as Dictionary
+		if (fish["position"] as Vector3).distance_squared_to(target) > radius_sq:
+			continue
+		fish["alert"] = minf(float(fish.get("alert", 0.0)) + 0.25, 1.0)
+		if count >= 6:
+			fish["state"] = "spooked"
+		builder.fish_hold_entries[i] = fish
 
 
 func _movement_word(sample: Dictionary) -> String:

@@ -6,14 +6,16 @@ func _fail(message: String) -> void:
 	printerr("casting_loop_check: FAIL - %s" % message)
 	quit(1)
 
+func _centerline(line: MeshInstance3D) -> PackedVector3Array:
+	if line == null or not line.has_meta("centerline"):
+		return PackedVector3Array()
+	return line.get_meta("centerline")
+
 func _first_line_vertex(line: MeshInstance3D) -> Vector3:
-	if line == null or line.mesh == null or line.mesh.get_surface_count() <= 0:
+	var pts := _centerline(line)
+	if pts.is_empty():
 		return Vector3.INF
-	var arrays := line.mesh.surface_get_arrays(0)
-	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	if vertices.is_empty():
-		return Vector3.INF
-	return vertices[0]
+	return pts[0]
 
 func _initialize() -> void:
 	var packed: PackedScene = load(SCENE)
@@ -75,10 +77,8 @@ func _initialize() -> void:
 	if leader == null:
 		_fail("expected separate transparent leader section named CastLeader")
 		return
-	var line_arrays := line.mesh.surface_get_arrays(0)
-	var line_vertices: PackedVector3Array = line_arrays[Mesh.ARRAY_VERTEX]
-	var leader_arrays := leader.mesh.surface_get_arrays(0)
-	var leader_vertices: PackedVector3Array = leader_arrays[Mesh.ARRAY_VERTEX]
+	var line_vertices := _centerline(line)
+	var leader_vertices := _centerline(leader)
 	if line_vertices.size() < 2 or leader_vertices.size() < 2:
 		_fail("line/leader sections have no endpoint vertices")
 		return
