@@ -28,6 +28,5 @@ Thumbs.db
 
 # Local agent/session metadata
 .codex
-.serena/
 flyfishinggame-planning session *.txt
 flyfishinggame-transcript session *.txt
